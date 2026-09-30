@@ -1,0 +1,24 @@
+{
+  "name": "cypress-automation",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "cypress:open": "node scripts/run-cypress.js open",
+    "cypress:run": "node scripts/run-cypress.js run --spec \"cypress/e2e/all-tests.cy.js\"",
+    "cypress:headed": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/all-tests.cy.js\" --no-exit",
+    "test:login": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/login.cy.js\" --no-exit",
+    "test:store-view": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/store-view.cy.js\" --no-exit",
+    "test:all": "npm run cypress:headed",
+    "watch": "nodemon --watch cypress --watch cypress.config.js --ext js -x \"node scripts/run-cypress.js run --headed --browser chrome --spec \\\"cypress/e2e/all-tests.cy.js\\\"\"",
+    "test": "npm run cypress:run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "cypress": "^13.17.0",
+    "nodemon": "^3.1.14"
+  }
+}
