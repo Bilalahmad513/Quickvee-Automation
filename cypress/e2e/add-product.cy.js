@@ -50,3 +50,4 @@ describe("Add Product", () => {
     productFormPage.assertAddedSuccessfully();
   });
 });
+
