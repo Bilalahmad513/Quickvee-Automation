@@ -37,6 +37,12 @@ describe("Store View", () => {
     // Landing inside a store's own admin view shows this switch-back button,
     // which only appears once a specific store has been opened.
     cy.contains("Back to Super Admin", { timeout: 15000 }).should("be.visible");
-    cy.contains(storeName, { matchCase: false }).should("be.visible");
+
+    // The store's own header displays its formatted name ("Store B"), not the
+    // raw login name used for searching ("storeb") - matching letter-by-letter
+    // with optional whitespace between them tolerates that formatting gap.
+    const escaped = storeName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const flexibleNamePattern = new RegExp(escaped.split("").join("\\s*"), "i");
+    cy.contains(flexibleNamePattern).should("be.visible");
   });
 });

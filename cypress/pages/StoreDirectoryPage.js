@@ -51,6 +51,29 @@ class StoreDirectoryPage {
   clickViewIconForFirstResult() {
     return cy.get("img.view").first().click();
   }
+
+  // Searches Inactive Stores first, falling back to Live Stores, then opens
+  // the matching store's own admin view via the eye/View icon. This is the
+  // same flow store-view.cy.js tests explicitly step by step - this version
+  // is for specs that just need to land inside a given store as a
+  // precondition, not for testing the search/fallback behavior itself.
+  enterStore(storeName) {
+    this.goToInactiveStores();
+    this.search(storeName);
+    this.waitForResultsToSettle(storeName);
+
+    this.isShowingNoResults().then((notFoundInInactive) => {
+      if (notFoundInInactive) {
+        this.goToLiveStores();
+        this.search(storeName);
+        return this.waitForResultsToSettle(storeName);
+      }
+    });
+
+    cy.contains(storeName, { matchCase: false }).should("be.visible");
+    this.clickViewIconForFirstResult();
+    return cy.contains("Back to Super Admin", { timeout: 15000 }).should("be.visible");
+  }
 }
 
 module.exports = new StoreDirectoryPage();

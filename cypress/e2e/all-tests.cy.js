@@ -6,3 +6,4 @@
 // the one real results tab open at the end.
 require("./login.cy.js");
 require("./store-view.cy.js");
+require("./add-product.cy.js");
