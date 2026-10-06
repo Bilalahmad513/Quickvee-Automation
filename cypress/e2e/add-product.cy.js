@@ -3,6 +3,8 @@ const storeDirectoryPage = require("../pages/StoreDirectoryPage");
 const productsPage = require("../pages/ProductsPage");
 const productFormPage = require("../pages/ProductFormPage");
 
+const SIZE_VALUE_POOL = ["Small", "Medium", "Large", "X-Large", "X-Small"];
+
 describe("Add Product", () => {
   beforeEach(() => {
     loginPage.login(
@@ -18,9 +20,11 @@ describe("Add Product", () => {
     productsPage.clickAddProduct();
     productsPage.chooseSingleProductType();
 
-    productFormPage.fillName("Cypress Simple Product " + Date.now());
-    productFormPage.selectCategory("CAT 10");
-    productFormPage.fillSimplePrice("25.00");
+    productFormPage.fillName("Simple Product " + Date.now().toString().slice(-5));
+    productFormPage.selectRandomCategory();
+    productFormPage.selectRandomBrand();
+    productFormPage.selectRandomTag();
+    productFormPage.fillSimplePricing("15.00", "25.00");
     productFormPage.save();
 
     productFormPage.assertAddedSuccessfully();
@@ -30,12 +34,17 @@ describe("Add Product", () => {
     productsPage.clickAddProduct();
     productsPage.chooseVariantProductType();
 
-    productFormPage.fillName("Cypress Variant Product " + Date.now());
-    productFormPage.selectCategory("CAT 10");
+    const [valueA, valueB] = Cypress._.sampleSize(SIZE_VALUE_POOL, 2);
+
+    productFormPage.fillName("Variant Product " + Date.now().toString().slice(-5));
+    productFormPage.selectRandomCategory();
+    productFormPage.selectRandomBrand();
+    productFormPage.selectRandomTag();
     productFormPage.selectAttribute("Size");
-    productFormPage.addVariantValue("Small");
-    productFormPage.addVariantValue("Large");
-    productFormPage.fillAllVariantPrices("30.00");
+    productFormPage.addVariantValue(valueA);
+    productFormPage.addVariantValue(valueB);
+    productFormPage.fillAllVariantPrices("20.00", "30.00");
+    productFormPage.fillAllVariantAvailableToSell();
     productFormPage.save();
 
     productFormPage.assertAddedSuccessfully();
