@@ -48,6 +48,43 @@ class ProductFormPage {
     return this.selectRandomOption("Add a tag", "Auto Tag ");
   }
 
+  // Same combobox as selectRandomOption, but deterministic: typing the exact
+  // name filters the panel down to that one option instead of picking (or
+  // creating) at random - for when the test needs this specific, already-
+  // existing option rather than any option.
+  //
+  // An option created moments earlier (e.g. by a just-run "add category"
+  // step) can take several seconds to become searchable here - confirmed
+  // live that the panel shows only a `Create "<name>"` button for a while
+  // before the real, exact-match option appears. `cy.contains("button",
+  // name)` would happily (and wrongly) click that `Create` button instead,
+  // since it also contains `name` as a substring - so this polls via
+  // `.should()` for a button whose full text is an EXACT match, not merely
+  // one that contains it, retrying for as long as that takes instead of a
+  // fixed `cy.wait()`.
+  selectOptionByName(placeholder, name, { timeout = 20000 } = {}) {
+    const input = () => cy.get(`input[placeholder="${placeholder}"]`);
+    const panelButtons = () => input().parent().next().find("button", { timeout });
+    const findExact = ($buttons) =>
+      Cypress._.find($buttons.toArray(), (el) => el.textContent.trim() === name);
+
+    input().click();
+    input().type(name);
+
+    return panelButtons()
+      .should(($buttons) => {
+        expect(findExact($buttons), `exact option button for "${name}"`).to.exist;
+      })
+      .then(($buttons) => {
+        cy.wrap(findExact($buttons)).click();
+        return cy.get("body").type("{esc}");
+      });
+  }
+
+  selectCategoryByName(name) {
+    return this.selectOptionByName("Add a category", name);
+  }
+
   // Simple-product pricing row is Cost, Price*, Compare-at price in that
   // left-to-right order and all three share the same "0.00" placeholder.
   fillSimplePricing(cost, price) {
@@ -123,8 +160,21 @@ class ProductFormPage {
   // letting the test hang on an assertion that was never going to resolve.
   save(attemptsLeft = 2) {
     cy.contains("button", "Save product").click();
+
+    // The click leads to one of two outcomes: the UPC-check modal, or an
+    // immediate success. Checking the body right away (the original bug
+    // here) can run before the modal has had time to render at all, making
+    // the check wrongly conclude there's no modal and skip clicking
+    // "Generate & save" - so this waits for EITHER outcome to actually
+    // appear (Cypress's built-in retry on `.should()`) instead of guessing a
+    // fixed delay before looking.
     return cy
-      .get("body")
+      .get("body", { timeout: 15000 })
+      .should(($body) => {
+        const hasModal = $body.find('button:contains("Generate & save")').length > 0;
+        const hasSuccess = $body.text().includes("Added Successfully");
+        expect(hasModal || hasSuccess, "either the UPC modal or a success message").to.be.true;
+      })
       .then(($body) => {
         if ($body.find('button:contains("Generate & save")').length > 0) {
           return cy.contains("button", "Generate & save").click();

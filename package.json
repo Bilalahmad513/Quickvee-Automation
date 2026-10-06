@@ -10,6 +10,7 @@
     "test:login": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/login.cy.js\" --no-exit",
     "test:store-view": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/store-view.cy.js\" --no-exit",
     "test:add-product": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/add-product.cy.js\" --no-exit",
+    "test:add-category": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/add-category.cy.js\" --no-exit",
     "test:all": "npm run cypress:headed",
     "watch": "nodemon --watch cypress --watch cypress.config.js --ext js -x \"node scripts/run-cypress.js run --headed --browser chrome --spec \\\"cypress/e2e/all-tests.cy.js\\\"\"",
     "test": "npm run cypress:run"
