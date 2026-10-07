@@ -1,17 +1,15 @@
-const loginPage = require("../pages/LoginPage");
-const storeDirectoryPage = require("../pages/StoreDirectoryPage");
 const categoriesPage = require("../pages/CategoriesPage");
 const productsPage = require("../pages/ProductsPage");
 const productFormPage = require("../pages/ProductFormPage");
 
 describe("Add Category", () => {
   it("creates a new category and uses it on a new simple product", () => {
-    loginPage.login(
+    cy.loginAndEnterStore(
       Cypress.env("storeName"),
       Cypress.env("username"),
-      Cypress.env("password")
+      Cypress.env("password"),
+      Cypress.env("storeUnderTest")
     );
-    storeDirectoryPage.enterStore(Cypress.env("storeUnderTest"));
 
     categoriesPage.visit();
     categoriesPage.clickAddCategory();

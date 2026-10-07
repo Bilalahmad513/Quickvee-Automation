@@ -5,6 +5,12 @@ module.exports = defineConfig({
     baseUrl: "https://admin-panel-test.quickvee.us",
     viewportWidth: 1920,
     viewportHeight: 1080,
+    // `cypress run` (used instead of `cypress open` - see scripts/run-cypress.js
+    // for why) doesn't keep each test's step-by-step command log in the UI
+    // once it passes, to save memory. Recording video means passed tests can
+    // still be reviewed afterward by watching the recording, not just by
+    // reading screenshots (which only get captured on failure).
+    video: true,
     setupNodeEvents(on, config) {
       on("task", {
         log(message) {
