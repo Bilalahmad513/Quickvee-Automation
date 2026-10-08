@@ -8,3 +8,4 @@ require("./login.cy.js");
 require("./store-view.cy.js");
 require("./add-product.cy.js");
 require("./add-category.cy.js");
+require("./storefront-search.cy.js");

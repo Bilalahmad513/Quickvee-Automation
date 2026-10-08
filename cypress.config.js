@@ -2,7 +2,7 @@ const { defineConfig } = require("cypress");
 
 module.exports = defineConfig({
   e2e: {
-    baseUrl: "https://admin-panel-test.quickvee.us",
+    baseUrl: "https://quickvee.com",
     viewportWidth: 1920,
     viewportHeight: 1080,
     // `cypress run` (used instead of `cypress open` - see scripts/run-cypress.js
