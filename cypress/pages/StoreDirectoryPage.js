@@ -48,8 +48,12 @@ class StoreDirectoryPage {
     return cy.get("body").then(($body) => $body.text().includes("No Data Found"));
   }
 
+  // The site used to render this as `<img class="view">`; it now renders as
+  // `<span class="qv-users-directory-icon" title="View">` wrapping an inline
+  // SVG - confirmed live via a DOM dump after `img.view` started reliably
+  // finding nothing.
   clickViewIconForFirstResult() {
-    return cy.get("img.view").first().click();
+    return cy.get('span.qv-users-directory-icon[title="View"]').first().click();
   }
 
   // Searches Inactive Stores first, falling back to Live Stores, then opens

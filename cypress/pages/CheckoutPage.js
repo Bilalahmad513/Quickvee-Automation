@@ -108,6 +108,13 @@ class CheckoutPage {
     cy.url({ timeout: 20000 }).should("include", "orderSummeryPage");
     return cy.contains("Order receipt", { timeout: 15000 }).should("be.visible");
   }
+
+  // The order ID lives right in the confirmation page's own URL
+  // (?orderId=...), which is simpler and more reliable than parsing it back
+  // out of the "Order #..." receipt text.
+  getOrderId() {
+    return cy.url().then((url) => new URL(url).searchParams.get("orderId"));
+  }
 }
 
 module.exports = new CheckoutPage();

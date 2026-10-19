@@ -1,9 +1,10 @@
 const storefrontPage = require("../pages/StorefrontPage");
 const productDetailPage = require("../pages/ProductDetailPage");
 const checkoutPage = require("../pages/CheckoutPage");
+const ordersPage = require("../pages/OrdersPage");
 
 describe("Storefront Search", () => {
-  it("searches a random product, adds it to cart, checks out with customer login, and places the order", () => {
+  it("searches a random product, adds it to cart, checks out with customer login, places the order, confirms it in the admin Orders module, and marks it picked up", () => {
     cy.loginAndEnterStore(
       Cypress.env("storeName"),
       Cypress.env("username"),
@@ -49,6 +50,32 @@ describe("Storefront Search", () => {
         checkoutPage.selectPickupTime();
         checkoutPage.placeOrder();
         checkoutPage.confirmOrderPlaced();
+
+        checkoutPage.getOrderId().then((orderId) => {
+          // Switching back to the admin session is just a cy.session()
+          // restore (same key as the call above) - cookies get swapped back
+          // instantly, no login form involved, even though the storefront
+          // login in between cleared them via ensureCustomerLoggedOut().
+          cy.loginAndEnterStore(
+            Cypress.env("storeName"),
+            Cypress.env("username"),
+            Cypress.env("password"),
+            Cypress.env("storeUnderTest")
+          );
+
+          ordersPage.visit();
+          ordersPage.selectOnlineOrders();
+          ordersPage.searchOrderId(orderId);
+          ordersPage.confirmOrderVisible(orderId);
+
+          ordersPage.markAsPickedUp(orderId);
+          // "Picked Up" is a completed/terminal status, outside the default
+          // Order Status filter (Accepted/Packing/+2 more) - clearing it
+          // brings the order back into view to confirm the change actually
+          // took effect.
+          ordersPage.clearStatusFilter();
+          ordersPage.confirmPickedUp(orderId);
+        });
       });
     });
   });
