@@ -92,9 +92,26 @@ class CheckoutPage {
   // `pointer-events: none` (MUI's floating-label pattern) - the real
   // clickable trigger is the MUI Select's div[role="combobox"], confirmed
   // live via id="pickup-time-select".
-  selectPickupTime(time = "09:30 AM") {
+  //
+  // The available slots are fetched fresh each time the dropdown opens (they
+  // depend on the picked date), so the random pick has to happen after
+  // opening it, not against a hardcoded list. The first option is a literal
+  // "None" placeholder, not a real time - excluded so a slot is always picked.
+  //
+  // The options render in asynchronously: a plain cy.get('[role="option"]')
+  // can resolve as soon as just "None" has mounted, before the real time
+  // slots follow - confirmed live via `Cypress._.sample()` getting an empty
+  // array and `cy.wrap(undefined).click()` blowing up. Waiting for more than
+  // one option gives the rest of the list time to actually land first.
+  selectPickupTime() {
     cy.get("#pickup-time-select").click();
-    return cy.contains('[role="option"]', time, { timeout: 8000 }).click();
+    return cy
+      .get('[role="option"]', { timeout: 8000 })
+      .should("have.length.greaterThan", 1)
+      .then(($options) => {
+        const slots = Cypress._.reject($options.toArray(), (el) => el.textContent.trim() === "None");
+        return cy.wrap(Cypress._.sample(slots)).click();
+      });
   }
 
   placeOrder() {
