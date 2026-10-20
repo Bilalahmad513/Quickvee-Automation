@@ -9,3 +9,4 @@ require("./store-view.cy.js");
 require("./add-product.cy.js");
 require("./add-category.cy.js");
 require("./storefront-search.cy.js");
+require("./new-product-order.cy.js");

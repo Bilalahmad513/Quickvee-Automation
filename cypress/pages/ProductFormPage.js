@@ -92,6 +92,21 @@ class ProductFormPage {
     return cy.get('input[placeholder="0.00"]').eq(1).clear().type(price);
   }
 
+  // A simple product saved with no stock quantity set defaults to 0 -
+  // confirmed live that such a product never becomes searchable on the
+  // storefront (the storefront's own product-listing API never returns it,
+  // even after 2+ minutes of polling and clicking the Products page's Sync
+  // button), regardless of indexing delay. "Available to sell" is the
+  // simple-product equivalent of the variant flow's "Available to sell"
+  // field (see fillAllVariantAvailableToSell) - its own input shares a bare
+  // "0" placeholder with the neighboring Reorder point/quantity fields, so
+  // the lookup is scoped to the label's own container to target the right
+  // one.
+  fillAvailableToSell(min = 10, max = 100) {
+    const quantity = String(Cypress._.random(min, max));
+    return cy.contains("Available to sell").parent().find('input[placeholder="0"]').clear().type(quantity);
+  }
+
   // The helper text above the field also reads "e.g. Size, Flavor", so a
   // plain cy.contains(attributeName) also matches that static text. Typing
   // into the dropdown's own "Search attributes..." box filters the list down

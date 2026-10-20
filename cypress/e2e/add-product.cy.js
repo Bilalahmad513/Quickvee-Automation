@@ -1,5 +1,6 @@
 const productsPage = require("../pages/ProductsPage");
 const productFormPage = require("../pages/ProductFormPage");
+const { randomProductName, randomPricePair } = require("../support/testData");
 
 const SIZE_VALUE_POOL = ["Small", "Medium", "Large", "X-Large", "X-Small"];
 
@@ -18,11 +19,14 @@ describe("Add Product", () => {
     productsPage.clickAddProduct();
     productsPage.chooseSingleProductType();
 
-    productFormPage.fillName("Simple Product " + Date.now().toString().slice(-5));
+    const simplePricing = randomPricePair();
+
+    productFormPage.fillName(randomProductName());
     productFormPage.selectRandomCategory();
     productFormPage.selectRandomBrand();
     productFormPage.selectRandomTag();
-    productFormPage.fillSimplePricing("15.00", "25.00");
+    productFormPage.fillSimplePricing(simplePricing.cost, simplePricing.price);
+    productFormPage.fillAvailableToSell();
     productFormPage.save();
 
     productFormPage.assertAddedSuccessfully();
@@ -33,15 +37,16 @@ describe("Add Product", () => {
     productsPage.chooseVariantProductType();
 
     const [valueA, valueB] = Cypress._.sampleSize(SIZE_VALUE_POOL, 2);
+    const variantPricing = randomPricePair();
 
-    productFormPage.fillName("Variant Product " + Date.now().toString().slice(-5));
+    productFormPage.fillName(randomProductName());
     productFormPage.selectRandomCategory();
     productFormPage.selectRandomBrand();
     productFormPage.selectRandomTag();
     productFormPage.selectAttribute("Size");
     productFormPage.addVariantValue(valueA);
     productFormPage.addVariantValue(valueB);
-    productFormPage.fillAllVariantPrices("20.00", "30.00");
+    productFormPage.fillAllVariantPrices(variantPricing.cost, variantPricing.price);
     productFormPage.fillAllVariantAvailableToSell();
     productFormPage.save();
 

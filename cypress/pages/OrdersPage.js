@@ -13,8 +13,10 @@ class OrdersPage {
     return cy.get(".order-tabs", { timeout: 10000 }).contains("Online").click();
   }
 
+  // .clear() first so searching a second order ID in the same test (after an
+  // earlier search) replaces the field instead of appending to it.
   searchOrderId(orderId) {
-    return cy.get('input[placeholder*="Search by Order ID" i]').type(orderId);
+    return cy.get('input[placeholder*="Search by Order ID" i]').clear().type(orderId);
   }
 
   // Confirms the searched order actually appears in the (now-filtered) list,

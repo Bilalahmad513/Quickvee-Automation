@@ -49,8 +49,11 @@ class StorefrontPage {
   // (a plain `cy.request({form: true})`, which sends urlencoded, gets a 400
   // "Invalid Content-Type"), so the multipart body is built by hand here to
   // match exactly what the real page sends.
-  fetchRandomProductName(merchantId) {
-    const boundary = "----CypressBoundary" + Date.now();
+  // Shared by fetchRandomProductName and waitForProductIndexed - both just
+  // need the "newest" page of this same listing API, confirmed live to be
+  // exactly what the storefront's own search/listing uses.
+  fetchNewestProducts(merchantId) {
+    const boundary = "----CypressBoundary" + Date.now() + Cypress._.random(0, 99999);
     const fields = {
       merchant_id: merchantId,
       orderMethod: "pickup",
@@ -72,14 +75,45 @@ class StorefrontPage {
         headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
         body,
       })
-      .then((res) => {
-        const allProducts = Object.values(res.body.result.all_product).flat();
-        return Cypress._.sample(allProducts).title;
-      });
+      .then((res) => Object.values(res.body.result.all_product).flat());
+  }
+
+  fetchRandomProductName(merchantId) {
+    return this.fetchNewestProducts(merchantId).then((allProducts) => Cypress._.sample(allProducts).title);
   }
 
   searchProduct(name) {
     return cy.get('input[placeholder="Search Product"]').clear().type(name);
+  }
+
+  // A product just created in admin doesn't show up in the search
+  // autocomplete instantly - confirmed live this is real network/indexing
+  // latency, not a missing admin-side step (Sync, stock, etc. were all ruled
+  // out first). Polling the merchant-products listing API (what
+  // fetchNewestProducts/fetchRandomProductName use) turned out to be the
+  // wrong ground truth here - confirmed live that listing's "newest" sort
+  // doesn't reliably surface a brand-new product at all, while the real
+  // search box found the same product within under a minute. So this drives
+  // the actual search box instead, which is what a real customer depends on -
+  // retyping the name each attempt since the dropdown only refetches on
+  // input change, not on its own. Recurses via cy.then() since Cypress
+  // commands can't be awaited in a real loop.
+  waitForProductSearchable(productName, { timeoutMs = 300000, pollIntervalMs = 5000 } = {}, _startedAt) {
+    const startedAt = _startedAt || Date.now();
+    this.searchProduct(productName);
+    return cy.wait(1500).then(() =>
+      cy.get("body").then(($body) => {
+        const found = $body
+          .find(".home-search-items")
+          .toArray()
+          .some((el) => el.innerText.includes(productName));
+        if (found) return true;
+        if (Date.now() - startedAt >= timeoutMs) return false;
+        return cy
+          .wait(pollIntervalMs)
+          .then(() => this.waitForProductSearchable(productName, { timeoutMs, pollIntervalMs }, startedAt));
+      })
+    );
   }
 
   // Typing into the search box surfaces a live autocomplete dropdown whose

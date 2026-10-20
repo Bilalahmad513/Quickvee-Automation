@@ -1,4 +1,19 @@
 class ProductDetailPage {
+  // A variant product's detail page renders one button per attribute value
+  // (e.g. Size: Small/Medium/Large) above the Quantity section instead of
+  // going straight to it - confirmed live on a real variant product's
+  // storefront page. One value renders pre-selected by default, but this
+  // clicks a random one explicitly so the flow doesn't depend on that
+  // default happening to be in stock. The class is CSS-modules-hashed
+  // (`_flavorButton_<hash>`), so matched by a stable substring instead of
+  // the full class name.
+  selectRandomVariant() {
+    return cy.get('button[class*="flavorButton"]', { timeout: 15000 }).then(($buttons) => {
+      const button = Cypress._.sample($buttons.toArray());
+      return cy.wrap(button).click();
+    });
+  }
+
   // Scopes every lookup here to the Quantity section (which also contains
   // the Add to cart button) rather than generic text/class selectors,
   // since "Add to cart" also appears repeatedly in the "Highest Selling
