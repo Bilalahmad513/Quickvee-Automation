@@ -1,6 +1,9 @@
 class LoginPage {
+  // The page's `load` event fires before React has rendered the form, and on
+  // a slow load that gap alone outlasted the default 4s lookup timeout.
   visit() {
     cy.visit("/merchants/login");
+    cy.get('input[name="storename"]', { timeout: 30000 }).should("be.visible");
     return this;
   }
 
@@ -46,6 +49,10 @@ class LoginPage {
     this.fillUsername(username);
     this.fillPassword(password);
     this.submit();
+    // Without this, whatever runs next (e.g. the store directory's sidebar
+    // lookup) started its own 4s timer the moment Login was clicked - so the
+    // login API, redirect and dashboard render all had to fit inside it.
+    cy.url({ timeout: 30000 }).should("not.include", "/login");
     return this;
   }
 }

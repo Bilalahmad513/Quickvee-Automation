@@ -1,6 +1,42 @@
+// Messages the form shows instead of saving when a required field is empty -
+// confirmed live: saving with no category shows "Select Category" and sends
+// no request at all. Add more here as they're found.
+const SAVE_VALIDATION_MESSAGES = ["Select Category"];
+
+// Which of the possible outcomes of clicking "Save product" is on screen, or
+// null if none yet. Uses innerText so only visible text counts.
+function saveOutcome($body) {
+  if ($body.find('button:contains("Generate & save")').length > 0) return { type: "upcModal" };
+  const text = $body[0].innerText;
+  if (text.includes("Added Successfully")) return { type: "success" };
+  if (text.includes("You're offline")) return { type: "offline" };
+  const message = SAVE_VALIDATION_MESSAGES.find((m) => text.includes(m));
+  if (message) return { type: "validation", message };
+  return null;
+}
+
 class ProductFormPage {
+  // First field on the form - the add-product page can sit on a loading
+  // spinner well past the default 4s before the form renders.
   fillName(name) {
-    return cy.get('input[placeholder="Enter product name"]').clear().type(name);
+    return cy.get('input[placeholder="Enter product name"]', { timeout: 30000 }).clear().type(name);
+  }
+
+  // A selected option shows up as a chip (span.qv-inv-chip) above the
+  // field's input. The chip is rendered from the form's own state, so seeing
+  // it means the selection actually registered - not just that the option
+  // was clicked. Waiting for it before moving on keeps a click that hadn't
+  // landed yet from surfacing later as a "Select Category" save failure.
+  assertChipSelected(placeholder, optionText) {
+    return cy
+      .get(`input[placeholder="${placeholder}"]`)
+      .parent()
+      .parent()
+      .find(".qv-inv-chip", { timeout: 10000 })
+      .should(($chips) => {
+        const selected = Cypress._.map($chips, (chip) => chip.innerText.trim());
+        expect(selected, `selected chips in "${placeholder}"`).to.include(optionText);
+      });
   }
 
   // Category, Brand and Tags all render as the same custom combobox: an
@@ -10,34 +46,54 @@ class ProductFormPage {
   // of a fixed option) means repeated runs don't keep piling onto the same
   // one; when the store has none yet, a uniquely-named one is created from
   // the same dropdown instead of failing the test.
-  selectRandomOption(placeholder, uniqueNamePrefix) {
+  //
+  // `verifySelected` waits for the chosen option's chip before moving on (see
+  // assertChipSelected). Only used for Categories - the one required field,
+  // and the one whose chip layout is confirmed; Brand renders its pick
+  // differently.
+  selectRandomOption(placeholder, uniqueNamePrefix, { verifySelected = false } = {}) {
     const input = () => cy.get(`input[placeholder="${placeholder}"]`);
     // The option panel is the dropdown row's very next sibling - asserting on
     // its visibility gives Cypress's normal retry-ability (not a cy.wait())
     // for the panel's contents, whether that's existing options or none.
     const panel = () => input().parent().next();
+    const confirm = (optionText) => {
+      if (verifySelected) this.assertChipSelected(placeholder, optionText);
+      return cy.get("body").type("{esc}");
+    };
 
     input().click();
+
+    // The panel's buttons aren't all options: long lists end in a "Load
+    // more" button (confirmed live - picking it randomly selected nothing and
+    // the save later failed with "Select Category"), and a typed name with no
+    // match turns into a `Create "..."` button.
+    const isRealOption = (el) => {
+      const text = el.textContent.trim();
+      return text !== "" && !/^load more$/i.test(text) && !text.startsWith('Create "');
+    };
 
     return panel()
       .should("be.visible")
       .find("button")
       .then(($buttons) => {
-        if ($buttons.length > 0) {
-          const randomIndex = Cypress._.random(0, $buttons.length - 1);
-          cy.wrap($buttons[randomIndex]).click();
-          return cy.get("body").type("{esc}");
+        const options = $buttons.toArray().filter(isRealOption);
+        if (options.length > 0) {
+          const option = Cypress._.sample(options);
+          const optionText = option.textContent.trim();
+          cy.wrap(option).click();
+          return confirm(optionText);
         }
 
         const uniqueName = uniqueNamePrefix + Date.now().toString().slice(-5);
         input().type(uniqueName);
         cy.contains("button", `Create "${uniqueName}"`, { timeout: 8000 }).click();
-        return cy.get("body").type("{esc}");
+        return confirm(uniqueName);
       });
   }
 
   selectRandomCategory() {
-    return this.selectRandomOption("Add a category", "Auto Category ");
+    return this.selectRandomOption("Add a category", "Auto Category ", { verifySelected: true });
   }
 
   selectRandomBrand() {
@@ -62,7 +118,7 @@ class ProductFormPage {
   // `.should()` for a button whose full text is an EXACT match, not merely
   // one that contains it, retrying for as long as that takes instead of a
   // fixed `cy.wait()`.
-  selectOptionByName(placeholder, name, { timeout = 20000 } = {}) {
+  selectOptionByName(placeholder, name, { timeout = 20000, verifySelected = false } = {}) {
     const input = () => cy.get(`input[placeholder="${placeholder}"]`);
     const panelButtons = () => input().parent().next().find("button", { timeout });
     const findExact = ($buttons) =>
@@ -77,12 +133,13 @@ class ProductFormPage {
       })
       .then(($buttons) => {
         cy.wrap(findExact($buttons)).click();
+        if (verifySelected) this.assertChipSelected(placeholder, name);
         return cy.get("body").type("{esc}");
       });
   }
 
   selectCategoryByName(name) {
-    return this.selectOptionByName("Add a category", name);
+    return this.selectOptionByName("Add a category", name, { verifySelected: true });
   }
 
   // Simple-product pricing row is Cost, Price*, Compare-at price in that
@@ -176,37 +233,49 @@ class ProductFormPage {
   save(attemptsLeft = 2) {
     cy.contains("button", "Save product").click();
 
-    // The click leads to one of two outcomes: the UPC-check modal, or an
-    // immediate success. Checking the body right away (the original bug
-    // here) can run before the modal has had time to render at all, making
-    // the check wrongly conclude there's no modal and skip clicking
-    // "Generate & save" - so this waits for EITHER outcome to actually
-    // appear (Cypress's built-in retry on `.should()`) instead of guessing a
-    // fixed delay before looking.
+    // Waits (Cypress's built-in retry on `.should()`) for whichever outcome
+    // shows up first, instead of guessing a fixed delay. The offline toast
+    // and validation messages count as outcomes too: neither brings up the
+    // UPC modal or a success message, so waiting only for those two used to
+    // sit out the full 15s and fail with a message that hid the real cause.
     return cy
       .get("body", { timeout: 15000 })
       .should(($body) => {
-        const hasModal = $body.find('button:contains("Generate & save")').length > 0;
-        const hasSuccess = $body.text().includes("Added Successfully");
-        expect(hasModal || hasSuccess, "either the UPC modal or a success message").to.be.true;
+        expect(
+          saveOutcome($body),
+          "a save outcome: UPC modal, success, form validation message, or offline toast"
+        ).to.not.equal(null);
       })
       .then(($body) => {
-        if ($body.find('button:contains("Generate & save")').length > 0) {
-          return cy.contains("button", "Generate & save").click();
+        const outcome = saveOutcome($body);
+
+        if (outcome.type === "validation") {
+          throw new Error(
+            `Save was blocked by the form's own validation ("${outcome.message}") - no save request was sent.`
+          );
         }
-      })
-      .then(() => {
-        cy.wait(1000);
-        return cy.get("body").then(($body) => {
-          if ($body.text().includes("You're offline") && attemptsLeft > 0) {
-            if ($body.find('[aria-label="Close"]').length > 0) {
-              cy.contains("You're offline").parent().find('[aria-label="Close"]').click();
-            }
-            cy.wait(2000);
-            return this.save(attemptsLeft - 1);
-          }
-        });
+        if (outcome.type === "offline") return this.retrySaveAfterOffline(attemptsLeft);
+        if (outcome.type === "upcModal") {
+          cy.contains("button", "Generate & save").click();
+          cy.wait(1000);
+          return cy.get("body").then(($after) => {
+            if ($after[0].innerText.includes("You're offline")) return this.retrySaveAfterOffline(attemptsLeft);
+          });
+        }
       });
+  }
+
+  retrySaveAfterOffline(attemptsLeft) {
+    if (attemptsLeft <= 0) {
+      throw new Error(`Saving kept hitting the "You're offline" toast, even after retrying.`);
+    }
+    cy.get("body").then(($body) => {
+      if ($body.find('[aria-label="Close"]').length > 0) {
+        cy.contains("You're offline").parent().find('[aria-label="Close"]').click();
+      }
+    });
+    cy.wait(2000);
+    return this.save(attemptsLeft - 1);
   }
 
   assertAddedSuccessfully() {

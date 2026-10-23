@@ -10,3 +10,4 @@ require("./add-product.cy.js");
 require("./add-category.cy.js");
 require("./storefront-search.cy.js");
 require("./new-product-order.cy.js");
+require("./reports/report-reconciliation.cy.js");

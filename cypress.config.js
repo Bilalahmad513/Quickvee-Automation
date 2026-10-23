@@ -11,6 +11,10 @@ module.exports = defineConfig({
     // still be reviewed afterward by watching the recording, not just by
     // reading screenshots (which only get captured on failure).
     video: true,
+    // A failed test is re-run up to twice in `cypress run` before counting as
+    // failed - this machine's slow, low-memory page loads regularly fail one
+    // attempt and pass the next with no code change.
+    retries: { runMode: 2, openMode: 0 },
     setupNodeEvents(on, config) {
       on("task", {
         log(message) {

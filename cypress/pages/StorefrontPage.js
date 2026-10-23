@@ -7,7 +7,7 @@ class StorefrontPage {
   // querying the product API) don't need it hardcoded per store.
   visitViaOnlineStoreLink() {
     return cy
-      .contains("View Online Store")
+      .contains("View Online Store", { timeout: 15000 })
       .invoke("attr", "href")
       .then((href) => {
         const merchantId = new URL(href).pathname.split("/").filter(Boolean).pop();
@@ -49,9 +49,6 @@ class StorefrontPage {
   // (a plain `cy.request({form: true})`, which sends urlencoded, gets a 400
   // "Invalid Content-Type"), so the multipart body is built by hand here to
   // match exactly what the real page sends.
-  // Shared by fetchRandomProductName and waitForProductIndexed - both just
-  // need the "newest" page of this same listing API, confirmed live to be
-  // exactly what the storefront's own search/listing uses.
   fetchNewestProducts(merchantId) {
     const boundary = "----CypressBoundary" + Date.now() + Cypress._.random(0, 99999);
     const fields = {
@@ -124,26 +121,6 @@ class StorefrontPage {
   // navigates correctly every time.
   selectSearchResult(productName) {
     return cy.contains(".home-search-items", productName).click();
-  }
-
-  // Clicking "Add to cart" shows an "Added to your cart" banner with its own
-  // "View cart" button - confirmed live this is more reliable to target than
-  // the header's persistent cart icon, which the banner can cover right
-  // after adding. Waits for the sidebar drawer itself to be visible
-  // afterward (rather than just a product-name text match, which can match
-  // stale/background content and pass even if the drawer has already
-  // closed) since later steps need to be scoped inside it.
-  openCart() {
-    cy.contains("button", "View cart", { timeout: 8000 }).click();
-    return this.cartSidebar().should("be.visible");
-  }
-
-  // The slide-out cart drawer - scoping lookups to it (instead of the whole
-  // page) avoids ambiguity with identical text elsewhere (e.g. a suggested
-  // product with the same name), and confirms the drawer hasn't already
-  // auto-closed before interacting with something inside it.
-  cartSidebar() {
-    return cy.get('[class*="cartSidebar"]');
   }
 }
 
