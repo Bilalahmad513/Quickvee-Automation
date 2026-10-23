@@ -2,7 +2,7 @@
 
 Yeh file is `cypress-automation` project ka poora walkthrough hai — har file kyun bani, kya karti hai, aur jo bugs raaste mein aaye unki asal wajah kya thi. Maqsad: aap khud is code ko dekh kar samajh sakein aur aage khud extend kar sakein.
 
-Yeh guide project ke shuru (sirf login + store-view) se lekar ab tak (product creation, storefront order placement, admin order verification/pickup) ka poora safar cover karta hai.
+Yeh guide project ke shuru (sirf login + store-view) se lekar ab tak (product creation, storefront order placement, admin order verification/pickup, aur reports ke numbers aapas mein match karne wala "report reconciliation" framework) ka poora safar cover karta hai.
 
 ---
 
@@ -11,7 +11,7 @@ Yeh guide project ke shuru (sirf login + store-view) se lekar ab tak (product cr
 ```
 cypress-automation/
 ├── cypress.config.js            → Cypress ki settings (baseUrl, viewport, video, browser flags)
-├── cypress.env.json              → Asal credentials (gitignored, kabhi commit nahi hoti)
+├── cypress.env.json              → Asal credentials + report stores (gitignored, kabhi commit nahi hoti)
 ├── cypress.env.json.example      → Credentials file ka sirf shape/placeholder (version-controlled)
 ├── package.json                  → npm scripts (kaunsa command kya chalata hai)
 ├── scripts/
@@ -24,7 +24,16 @@ cypress-automation/
     │   ├── add-category.cy.js
     │   ├── storefront-search.cy.js
     │   ├── new-product-order.cy.js
+    │   ├── reports/
+    │   │   └── report-reconciliation.cy.js  → Reports ke numbers aapas mein match karne wala test
     │   └── all-tests.cy.js
+    ├── reports/                  → Report reconciliation framework (section 5)
+    │   ├── reportDefinitions.js  → Har report API ka endpoint + extra params
+    │   ├── reportMappings.js     → Kaunsi value kis value ke barabar honi chahiye
+    │   ├── reconciliationConfig.js → Stores + date filters
+    │   ├── ReportsApi.js         → Auth capture, API calls, comparison
+    │   └── reconciliationReport.js → Colored command-log rows + HTML report
+    ├── reports-output/           → Har run ki HTML report (gitignored)
     ├── pages/                    → Page Object Model classes
     │   ├── LoginPage.js
     │   ├── StoreDirectoryPage.js
@@ -50,13 +59,17 @@ Aapne kaha tha "sab kuch POM ke through ho" — iska matlab: **test file (`*.cy.
 - Selectors (kaunsa element kahan hai) — ek jagah maujood hain
 - Actions (click karna, type karna) — methods ke tor par
 
-Test file sirf in methods ko **call** karti hai, jaise: `loginPage.login(...)`. Fayda yeh hai ke agar kal UI mein koi selector badal jaye (jaise input ka naam), to sirf Page class mein ek jagah fix karna parta hai — har test file mein dhoondh dhoondh kar badalna nahi parta. Yeh baat is guide ke section 5 mein ek baar khud sach saabit hui (StoreDirectoryPage ka selector).
+Test file sirf in methods ko **call** karti hai, jaise: `loginPage.login(...)`. Fayda yeh hai ke agar kal UI mein koi selector badal jaye (jaise input ka naam), to sirf Page class mein ek jagah fix karna parta hai — har test file mein dhoondh dhoondh kar badalna nahi parta. Yeh baat is guide ke Masla 6 mein ek baar khud sach saabit hui (StoreDirectoryPage ka selector).
 
 ### `cypress/pages/LoginPage.js`
 
 ```js
 class LoginPage {
-  visit() { cy.visit("/merchants/login"); return this; }
+  visit() {
+    cy.visit("/merchants/login");
+    cy.get('input[name="storename"]', { timeout: 30000 }).should("be.visible");
+    return this;
+  }
   getStoreNameInput() { return cy.get('input[name="storename"]'); }
   getUsernameInput() { return cy.get('input[name="username"]'); }
   getPasswordInput() { return cy.get('input[name="password"]'); }
@@ -73,6 +86,7 @@ class LoginPage {
     this.fillUsername(username);
     this.fillPassword(password);
     this.submit();
+    cy.url({ timeout: 30000 }).should("not.include", "/login");
     return this;
   }
 }
@@ -80,6 +94,7 @@ class LoginPage {
 module.exports = new LoginPage();
 ```
 
+- `visit()` aur `login()` ke andar do **checkpoints** hain (Masla 16 dekhein): login page par form aane ka 30 second tak intezar, aur Login click ke baad tab tak rukna jab tak URL se `/login` hat na jaye. Inke baghair login ke baad wala har step apna 4-second timer Login click hote hi shuru kar deta tha.
 - Har `get...()` method sirf ek selector return karta hai.
 - `fillPassword` mein `{ log: false }` isliye hai taake password Cypress ke command-log/terminal output mein plain-text na dikhe (security ke liye).
 - `login()` ek "combo" method hai jo poora flow (visit → teeno field bharna → submit) ek hi call mein kar deta hai.
@@ -91,7 +106,7 @@ module.exports = new LoginPage();
 
 ```js
 ensureUsersMenuExpanded() {
-  return cy.get('[title="Users"]').then(($trigger) => {
+  return cy.get('[title="Users"]', { timeout: 30000 }).then(($trigger) => {
     if ($trigger.attr("aria-expanded") !== "true") {
       return cy.wrap($trigger).click({ force: true });
     }
@@ -99,6 +114,8 @@ ensureUsersMenuExpanded() {
 }
 ```
 Sidebar ka "Users" section ek collapsible accordion hai. Jab tak yeh khula (`aria-expanded="true"`) na ho, "Live Stores"/"Inactive Stores" jaisay links DOM mein hote hi nahi.
+
+Is class ke saare steps ab lambe timeouts istemaal karte hain: Users menu 30s, Live/Inactive Stores link 15s, search box 20s, table mein store ka naam 15s, View icon 15s. Login ke baad ya "Back to Super Admin" ke baad sidebar aur table app ki apni API calls khatam hone par hi render hote hain. Slow load par ye default 4 second se zyada lete thay aur "create session" error dete thay (Masla 16).
 
 ```js
 waitForResultsToSettle(term) {
@@ -143,6 +160,14 @@ enterStore(storeName) {
 ```
 Yeh `store-view.cy.js` wala poora flow hai, bas ek reusable method ki shakal mein — taake har naya spec jisay sirf "ek store ke andar hona" chahiye (login/store-view khud test nahi karna), yeh poora UI dobara na likhe.
 
+```js
+backToSuperAdmin() {
+  cy.contains("Back to Super Admin", { timeout: 15000 }).click();
+  return cy.get('[title="Users"]', { timeout: 30000 }).should("exist");
+}
+```
+Ek store ke andar se wapas Super Admin mein le jata hai. Wahan se `enterStore()` dusra store khol sakta hai, aur dobara login nahi karna parta. Report reconciliation test isi se ek login mein kai stores check karta hai.
+
 ### `cypress/pages/CategoriesPage.js`
 
 ```js
@@ -167,7 +192,7 @@ clickSync() {
   return cy.contains("button", "Sync").click();
 }
 ```
-Yeh "Sync" button pattern baad mein `ProductsPage.clickSync()` ke liye precedent bana (section 5, Masla 8 mein iski poori kahani hai).
+Isi pattern par baad mein products ke liye bhi ek `ProductsPage.clickSync()` try kiya gaya tha. Woh naye product ke search mein na aane ka masla hal nahi kar saka, is liye hata diya gaya. Poori kahani Masla 8 mein hai.
 
 ### `cypress/pages/ProductsPage.js`
 
@@ -189,12 +214,8 @@ chooseVariantProductType() {
   cy.contains("Product with variants").click();
   return cy.contains("a", "Continue").click();
 }
-
-clickSync() {
-  return cy.contains("button", "Sync").click();
-}
 ```
-Product-creation flow do tarah ka hota hai: **Simple/Single** (ek hi price/stock) aur **Variant** (jaise Size: Small/Medium/Large, har value ki apni price/stock). `clickSync()` yahan mojood hai (CategoriesPage ke pattern par), lekin **isay real masle ka akela/sufficient fix nahi paaya gaya** — tafseel Masla 8 mein.
+Product-creation flow do tarah ka hota hai: **Simple/Single** (ek hi price/stock) aur **Variant** (jaise Size: Small/Medium/Large, har value ki apni price/stock).
 
 ### `cypress/pages/ProductFormPage.js`
 
@@ -202,30 +223,63 @@ Yeh sabse bara page class hai, kyunke Simple aur Variant dono product forms isi 
 
 ```js
 fillName(name) {
-  return cy.get('input[placeholder="Enter product name"]').clear().type(name);
+  return cy.get('input[placeholder="Enter product name"]', { timeout: 30000 }).clear().type(name);
 }
 ```
+Ye form ka pehla field hai. Add-product page kabhi kaafi der spinner par rehta hai, is liye yahan 30 second tak intezar hota hai.
 
 ```js
 // Category, Brand and Tags all render as the same custom combobox: an
 // <input> whose very next sibling is the absolutely-positioned option
 // panel, each option a <button>, and typing a name with no match turns the
 // panel into a single `Create "<name>"` button.
-selectRandomOption(placeholder, uniqueNamePrefix) { /* ... */ }
+selectRandomOption(placeholder, uniqueNamePrefix, { verifySelected = false } = {}) {
+  // ...
+  const isRealOption = (el) => {
+    const text = el.textContent.trim();
+    return text !== "" && !/^load more$/i.test(text) && !text.startsWith('Create "');
+  };
+  // panel ke buttons -> sirf isRealOption wale -> unme se random click
+  // verifySelected ho to chosen option ki chip ka intezar (assertChipSelected)
+}
 
-selectRandomCategory() { return this.selectRandomOption("Add a category", "Auto Category "); }
+selectRandomCategory() {
+  return this.selectRandomOption("Add a category", "Auto Category ", { verifySelected: true });
+}
 selectRandomBrand() { return this.selectRandomOption("Choose a brand", "Auto Brand "); }
 selectRandomTag() { return this.selectRandomOption("Add a tag", "Auto Tag "); }
 ```
 Category/Brand/Tag teeno ek hi custom combobox pattern share karte hain. Agar store mein pehle se options maujood hain to randomly ek pick ho jati hai; agar koi option hi nahi to usi dropdown se ek naya unique-naam wala option create ho jata hai — test kabhi "koi option nahi mili" ki wajah se fail nahi hota.
+
+**Do zaroori baatein (Masla 17):**
+- Dropdown ke saare buttons option nahi hote. Lambi list ke aakhir mein ek **"Load more"** button hota hai, aur type kiya hua naam na mile to `Create "..."` button aata hai. `isRealOption` in dono ko random chunne se pehle hata deta hai. Pehle kabhi kabhi "Load more" chun liya jata tha, jisse category khaali reh jati thi.
+- Category ke liye `verifySelected: true` hai. Chuna hua option field ke upar ek chip (`span.qv-inv-chip`) ki shakal mein aata hai, aur woh chip form ki apni state se banti hai. `assertChipSelected()` usi chip ka 10 second tak intezar karta hai, phir aage barhta hai. Brand par ye check nahi hai, kyunke Brand ki chip alag tarah dikhti hai.
+
+```js
+assertChipSelected(placeholder, optionText) {
+  return cy
+    .get(`input[placeholder="${placeholder}"]`)
+    .parent()
+    .parent()
+    .find(".qv-inv-chip", { timeout: 10000 })
+    .should(($chips) => {
+      const selected = Cypress._.map($chips, (chip) => chip.innerText.trim());
+      expect(selected, `selected chips in "${placeholder}"`).to.include(optionText);
+    });
+}
+```
+
+**Known behaviour:** select karne ke baad `{esc}` dropdown band nahi karta (`aria-expanded` `true` hi rehta hai). Dropdown tab band hota hai jab test agle field par click karta hai. Abhi isse koi test fail nahi hota, is liye ise nahi chheda gaya.
 
 ```js
 // An option created moments earlier (e.g. by a just-run "add category"
 // step) can take several seconds to become searchable here - confirmed
 // live that the panel shows only a `Create "<name>"` button for a while
 // before the real, exact-match option appears.
-selectOptionByName(placeholder, name, { timeout = 20000 } = {}) { /* ... */ }
-selectCategoryByName(name) { return this.selectOptionByName("Add a category", name); }
+selectOptionByName(placeholder, name, { timeout = 20000, verifySelected = false } = {}) { /* ... */ }
+selectCategoryByName(name) {
+  return this.selectOptionByName("Add a category", name, { verifySelected: true });
+}
 ```
 Yeh `selectRandomOption` se farq hai: yahan **exact** naam wala option chuna jata hai (random nahi), aur agar abhi-abhi banaya gaya naam turant searchable na ho to retry karta rehta hai jab tak asal option na aa jaye (nahi to `Create "<name>"` wala button galti se dobara click ho jata, jo substring-match se bhi match ho jata hai).
 
@@ -272,15 +326,38 @@ fillAllVariantAvailableToSell(min = 10, max = 100) { /* ... */ }
 Yeh method ka comment khud is project ka sabse "non-obvious" gotcha samjhata hai: variant rows ko by-position (Nth row) dhoondhna khatarnak hai, kyunke ek row ke saath interact karne se doosri rows re-render ho kar apni jagah badal sakti hain. Is liye har row ka apna stable `data-npf-vcard="N"` attribute istemaal hota hai.
 
 ```js
-// Saving warns if any item has no UPC [...] The test environment
-// occasionally throws up a transient "You're offline" toast mid-save [...]
-save(attemptsLeft = 2) { /* ... */ }
+const SAVE_VALIDATION_MESSAGES = ["Select Category"];
+
+function saveOutcome($body) {
+  if ($body.find('button:contains("Generate & save")').length > 0) return { type: "upcModal" };
+  const text = $body[0].innerText;
+  if (text.includes("Added Successfully")) return { type: "success" };
+  if (text.includes("You're offline")) return { type: "offline" };
+  const message = SAVE_VALIDATION_MESSAGES.find((m) => text.includes(m));
+  if (message) return { type: "validation", message };
+  return null;
+}
+
+save(attemptsLeft = 2) {
+  cy.contains("button", "Save product").click();
+  // body par 15s tak intezar jab tak saveOutcome() koi outcome na de, phir:
+  //   validation -> foran fail: 'Save was blocked by the form's own validation ("Select Category")'
+  //   offline    -> retrySaveAfterOffline(): toast band, 2s ruko, dobara save
+  //   upcModal   -> "Generate & save" click, phir offline toast ka check
+  //   success    -> kuch nahi, aage chalo
+}
 
 assertAddedSuccessfully() {
   return cy.contains("Added Successfully", { timeout: 10000 }).should("be.visible");
 }
 ```
-`save()` do alag outcomes handle karta hai (UPC-missing modal, ya seedha success), aur agar beech mein "You're offline" wala transient toast aa jaye (real network blip) to khud retry kar leta hai.
+"Save product" click karne ke baad `save()` ab **chaar** outcomes pehchanta hai:
+- **UPC modal**: "Generate & save" click karta hai.
+- **Success**: aage chalta hai.
+- **Form validation message**: recon mein confirm hua ke category khaali ho to app "Select Category" dikhati hai aur koi request nahi bhejti. Test 15 second rukne ke bajaye foran saaf error ke saath fail hota hai.
+- **"You're offline" toast**: save dobara try hota hai (zyada se zyada 2 dafa).
+
+Pehle sirf UPC modal aur success ka intezar hota tha. Validation ya offline par test 15 second ruk kar `either the UPC modal or a success message` wala error deta tha, jo asal wajah chhupa deta tha. Naye validation messages mile to `SAVE_VALIDATION_MESSAGES` mein add kar dein.
 
 ### `cypress/pages/StorefrontPage.js`
 
@@ -290,7 +367,7 @@ Yeh class **customer-facing storefront** (`quickvee.com/merchant/<id>`) ke liye 
 // The admin header's "View Online Store" link is a `target="_blank"` anchor
 // - Cypress can only drive one tab, so rather than clicking it [...] this
 // grabs its href and visits it directly in the current tab.
-visitViaOnlineStoreLink() { /* ... */ }
+visitViaOnlineStoreLink() { /* cy.contains("View Online Store", { timeout: 15000 }) ... */ }
 
 // A customer session from an earlier run can still be logged in here [...]
 // Clearing cookies/storage and reloading guarantees a guest session.
@@ -611,6 +688,34 @@ it("creates a simple and a variant product, and places one order containing both
 
 Yeh ek hi test case **do products banata hai, dono ko ek hi cart mein daal kar ek hi order place karta hai, aur sirf 2 login/session operations istemaal karta hai** (1 shuru mein, 1 order verify karne ke liye). Is final design tak pohanchne mein kai iterations lagi — tafseel Masla 8, 9, 10, 12, 14 mein.
 
+### `reports/report-reconciliation.cy.js`
+Reports ke numbers aapas mein match karta hai, jaise Dashboard ka "Total Sales Revenue" aur Sales Summary ka "Net Sales". Poora framework section 5 mein hai. Short mein:
+
+```js
+it(`report values match across reports for stores: ${stores.join(", ")}`, () => {
+  stores.forEach((store, index) => {
+    if (index === 0) {
+      cy.loginAndEnterStore(..., store);          // sirf ek dafa login
+    } else {
+      storeDirectoryPage.backToSuperAdmin();      // agla store bina login ke
+      storeDirectoryPage.enterStore(store);
+    }
+    reportsApi.captureContext().then((context) => {
+      getDateRanges().forEach((range) => {
+        reportsApi.reconcile(context, range, reportMappings).then((results) => {
+          /* har result: logRow() (green/red) + allRows mein add */
+        });
+      });
+    });
+  });
+  /* aakhir mein: koi MISMATCH ho to saari mismatches ek sath fail message mein */
+});
+```
+
+- Saare stores ek hi `it()` mein hain taake login form sirf ek dafa bhara jaye. Pehla store cached session se aata hai, baqi "Back to Super Admin" se.
+- `beforeEach` har attempt ke shuru mein `allRows` khaali karta hai. Isse retry ke baad HTML report mein purani, fail hui attempt ki rows nahi aati.
+- `after()` har run ke aakhir mein HTML report likhta hai, chahe test fail ho.
+
 ### `all-tests.cy.js`
 ```js
 require("./login.cy.js");
@@ -619,12 +724,76 @@ require("./add-product.cy.js");
 require("./add-category.cy.js");
 require("./storefront-search.cy.js");
 require("./new-product-order.cy.js");
+require("./reports/report-reconciliation.cy.js");
 ```
-Sab specs ko ek hi "file/tab" mein merge karta hai — wajah Masla 5 mein (Chrome apni last tab band hote hi khud exit ho jata hai).
+Sab specs ko ek hi "file/tab" mein merge karta hai — wajah Masla 5 mein (Chrome apni last tab band hote hi khud exit ho jata hai). Report test sabse aakhir mein hai, is liye uski "Today" value mein isi run ke order tests ke naye orders bhi shamil hote hain.
 
 ---
 
-## 5. `cypress.config.js` aur Credentials
+## 5. Report Reconciliation Framework (`cypress/reports/`)
+
+**Maqsad:** alag alag reports mein jo numbers dikhte hain, woh aapas mein match karne chahiye. Pehli comparison: **Dashboard ka "Total Sales Revenue" = Reporting → Sales Summary ka "Net Sales"**, same store aur same date range par.
+
+### UI nahi, API seedha
+Dono screens kholkar `$303.00` jaisa text parse karna slow aur flaky hota. Is liye test seedha un APIs ko call karta hai jo in screens ke peeche hain:
+
+| Report | API | Value |
+|---|---|---|
+| Dashboard | `POST https://reports-api.quickvee.us/api/reports/dashboard` | `kpis.revenue.value` (number, jaise `303`) |
+| Sales Summary | `POST https://reports-api.quickvee.us/api/reports/sales_report_api_fact` | `result.gross_sales.net_sales` (string, jaise `"303.00"`) |
+
+Recon mein ye cheezein confirm hui:
+- Dono APIs `multipart/form-data` maangti hain. Saath mein `Authorization: Bearer ...` header aur login-context fields (`token_id`, `session_id`, `login_type`, `login_user_type`, `login_merchant_id`, `login_user_email`) jate hain.
+- Store `merchant_id`/`outlet_ids` se, aur dates `start_date`/`end_date` (`YYYY-MM-DD`) se jaati hain.
+- Dashboard API UI ke Day/Week/Month ke bawajood **koi bhi custom range** accept karti hai. `kpis.*` hamesha `start_date`/`end_date` follow karta hai, aur response ka `headline` batata hai ke kaunsi range use hui.
+- Discount aur refund wale dinon par bhi dashboard revenue net sales ke barabar aaya. Yani dashboard "revenue" waqai net sales hai.
+
+### Files
+
+**`reportDefinitions.js`**: har report ka endpoint aur extra params. Naya report = yahan ek entry.
+```js
+dashboard: {
+  endpoint: "dashboard",
+  extraFields: ({ startDate, endDate, isCurrentPeriod }) => ({
+    date_range: `${startDate}_${endDate}`, activeType: "Day", date_type: "Day",
+    isViewingCurrentPeriod: String(isCurrentPeriod), top_limit: "10",
+  }),
+  reportedRange: (body) => ({ startDate: body.headline.start, endDate: body.headline.end }),
+},
+salesSummary: { endpoint: "sales_report_api_fact", extraFields: () => ({}) },
+```
+`reportedRange` API ki apni batayi hui range padhta hai. Test check karta hai ke API ne wahi range use ki jo maangi gayi thi, taake galat date range par match chupke se pass na ho.
+
+**`reportMappings.js`**: kaunsi value kis value ke barabar honi chahiye. Nayi comparison = yahan ek entry.
+```js
+{
+  left: { label: "Dashboard Total Sales Revenue", report: "dashboard", path: "kpis.revenue.value" },
+  right: { label: "Sales Summary Net Sales", report: "salesSummary", path: "result.gross_sales.net_sales" },
+}
+```
+
+**`reconciliationConfig.js`**: stores aur date filters.
+- Stores: `cypress.env.json` ka `"reportStores": ["storeb", "monster01"]`. Na ho to `storeUnderTest`.
+- Date filters (har run par aaj ki date se khud calculate hote hain): Today, Yesterday, Last 7 days, This month (1 tareekh se aaj tak), Last month, Month before last, This year (1 January se aaj tak). January mein "Last month" sahi tareeqe se pichle saal ka December banta hai.
+- Custom range: `cypress.env.json` mein `"reportStartDate"` aur `"reportEndDate"` dein. Phir sirf wahi ek range chalegi.
+
+**`ReportsApi.js`**:
+- `captureContext()`: Dashboard page kholta hai aur app ki apni dashboard API call ko intercept karke bearer token, login fields aur `merchant_id` utha leta hai. Token app ke runtime state mein rehta hai, kahin stable jagah nahi jahan se seedha padha ja sake.
+- `fetch(reportName, context, range)`: report API ko same store aur same range ke saath call karta hai, `status: true` aur reported range check karta hai.
+- `reconcile(context, range, mappings)`: jitni reports mappings ko chahiye, har ek ko ek hi dafa fetch karta hai. Phir har mapping ki dono values ko 2 decimals tak barabar karke compare karta hai (`303` aur `"303.00"` barabar). Har mapping ki ek row return karta hai, assert nahi karta, taake saari mismatches ek sath report hon.
+
+**`reconciliationReport.js`**:
+- `logRow()` command log mein har comparison ki ek row banata hai. MATCH green aur MISMATCH red hoti hai, amounts bold:
+  `✔ MATCH [storeb] Today (2026-10-23) → Dashboard Total Sales Revenue: $303.00 | Sales Summary Net Sales: $303.00`
+  Cypress har log entry ko `command-name-<name>` class deta hai. Hum `match`/`mismatch` naam se log karte hain aur runner ke document (`window.top`) mein CSS daal kar unhe rang dete hain.
+- `buildHtml()` har run ke aakhir mein `cypress/reports-output/reconciliation-<date>_<time>.html` banata hai: Store, Date filter, Date range, dono values, Result. Mismatch row red hoti hai. Ye folder gitignored hai.
+
+### Ek security observation
+Recon ke dauran ek **galat token** (`Bearer invalid`) ke saath bhi Dashboard API ne status 200 diya. Sirf status dekha gaya tha, ye nahi ke response mein data bhi aaya ya nahi. Agar data aata hai to API token check nahi kar rahi; backend team se confirm karwana chahiye.
+
+---
+
+## 6. `cypress.config.js` aur Credentials
 
 ```js
 module.exports = defineConfig({
@@ -633,6 +802,7 @@ module.exports = defineConfig({
     viewportWidth: 1920,
     viewportHeight: 1080,
     video: true,
+    retries: { runMode: 2, openMode: 0 },
     setupNodeEvents(on, config) {
       on("task", { log(message) { console.log(message); return null; } });
       on("before:browser:launch", (browser, launchOptions) => {
@@ -650,7 +820,8 @@ module.exports = defineConfig({
 
 - `baseUrl` ab `quickvee.com` hai (pehle `admin-panel-test.quickvee.us` tha) — jaise-jaise tests storefront (customer-facing side) tak phaile, dono admin aur storefront isi ek domain par hain.
 - `viewportWidth/Height` fix kiya gaya (1920x1080) taake har run consistent layout par chale (MUI ke responsive breakpoints — Masla 10 dekhein — iss par depend karte hain).
-- `video: true` — `cypress run` passed test ka step-by-step log UI mein nahi rakhta (memory bachane ke liye), lekin video record hoti hai taake pass hone wale test ko bhi dobara dekh sakein.
+- `video: true` — `cypress run` passed test ka step-by-step log UI mein nahi rakhta (memory bachane ke liye), lekin video record hoti hai taake pass hone wale test ko bhi dobara dekh sakein. (`--no-exit` wala run jab tak khula ho, video file adhoori rehti hai aur khulti nahi.)
+- `retries: { runMode: 2 }` — `cypress run` mein fail hone wala test 2 dafa aur chalta hai, uske baad hi fail maana jata hai (Masla 16). Data banane wale tests (`add-product`, `new-product-order`) ka retry naya product/order dobara banata hai, is liye store mein thoda extra test data aa sakta hai.
 - **Credentials ab `cypress.config.js` mein hardcoded nahi hain** — `cypress.env.json` (gitignored) mein hain:
   ```json
   {
@@ -659,15 +830,16 @@ module.exports = defineConfig({
     "password": "...",
     "storeUnderTest": "storeb",
     "customerEmail": "...",
-    "customerPassword": "..."
+    "customerPassword": "...",
+    "reportStores": ["storeb", "monster01"]
   }
   ```
   Cypress yeh file khud-ba-khud load kar ke `Cypress.env(...)` mein merge kar deta hai — config file mein kuch badalna nahi parta. `cypress.env.json.example` sirf shape dikhane ke liye version-controlled hai (placeholder values ke saath).
-  `customerEmail`/`customerPassword` baad mein add hue jab storefront-side checkout tests banay (customer apna alag login hai, admin se).
+  `customerEmail`/`customerPassword` baad mein add hue jab storefront-side checkout tests banay (customer apna alag login hai, admin se). `reportStores` report reconciliation ke stores ki list hai (section 5); store add ya remove karne ke liye sirf ye list badlein, code nahi.
 
 ---
 
-## 6. Bade Masle Jo Aaye Aur Unki Asal Wajah
+## 7. Bade Masle Jo Aaye Aur Unki Asal Wajah
 
 Yeh section sabse zyada seekhne wala hissa hai.
 
@@ -700,13 +872,13 @@ Pehle ek dummy spec thi jo sirf wait karti thi — ghalat approach, hata di gayi
 ### Masla 8 (sabse lambi investigation) — Naya product storefront search mein turant nahi aata tha
 Jab `new-product-order.cy.js` pehli baar banaya gaya, naya banaya hua product storefront ke search mein 100+ seconds tak bhi nahi aa raha tha. Teen galat-sahi theories try hui:
 
-1. **Theory:** Products page ka "Sync" button (CategoriesPage ke pattern par) chahiye. `ProductsPage.clickSync()` bana kar try kiya — ~108 seconds tak bhi product search mein nahi aaya. **Yeh akela/sufficient fix nahi tha.**
+1. **Theory:** Products page ka "Sync" button (CategoriesPage ke pattern par) chahiye. `ProductsPage.clickSync()` bana kar try kiya — ~108 seconds tak bhi product search mein nahi aaya. **Yeh akela/sufficient fix nahi tha**, aur baad mein ye method hata diya gaya kyunke kisi test mein istemaal nahi hota tha aur uska comment galat dawa karta tha.
 2. **Theory:** Simple product default `0` stock quantity par save hota hai, aur zero-stock products search mein exclude ho rahe hain. `ProductFormPage.fillAvailableToSell()` bana kar `add-product.cy.js` mein wire kiya — yeh khud ek **real aur valid fix** nikla (ab bhi mojood hai), lekin **akele yeh bhi** masla hal nahi kar saka (~115s tak bhi product nahi mila).
 3. **Asal wajah (user ne khud confirm ki):** us din sirf **network/indexing slow** tha — koi missing admin step nahi tha.
 
 Lekin ek doosra, zyada bunyadi masla bhi saath mein nikla: jo API (`merchant-products` listing, jo `fetchRandomProductName` istemaal karta hai) poll ki ja rahi thi, **wahi ghalat jagah thi**. Live check karne par pata chala ke yeh listing API "newest" sort karne ke bawajood mahino purane products ko bhi dikhati hai aur sirf ek fixed/capped set return karti hai — ek bilkul nayay product ko reliably top par nahi laati. Jabke **asal storefront search box** (jo customer khud istemaal karta hai) usi product ko sirf ~1 minute mein dhoond leta tha.
 
-**Sahi Fix:** `waitForProductIndexed` (API-based poll) hata kar `waitForProductSearchable` banaya — jo seedha UI search box ko hi baar-baar retype/retry karta hai (5 minute tak, 5 second ke wقfay se), jab tak search dropdown mein asal product na dikh jaye. Yeh "ground truth" khud customer jo dekhta hai wahi hai.
+**Sahi Fix:** `waitForProductIndexed` (API-based poll) hata kar `waitForProductSearchable` banaya — jo seedha UI search box ko hi baar-baar retype/retry karta hai (5 minute tak, 5 second ke waqfay se), jab tak search dropdown mein asal product na dikh jaye. Yeh "ground truth" khud customer jo dekhta hai wahi hai.
 
 ### Masla 9 — `selectRandomVariant()` kabhi kabhi element na milta
 **Wajah:** Variant product ki detail page par jab yeh method chalta tha, screenshot se pata chala ke page abhi bhi skeleton/loading state mein tha (size buttons render hi nahi huay thay) — default 4-second timeout kaafi nahi tha.
@@ -735,8 +907,10 @@ Poori is session mein free memory kayi dafa **0.3 GB se 2 GB** ke darmiyan dekhi
 In sab ka asal code se koi talluq nahi — yeh sab isi low-memory environment ki nishani hain. Jo tareeqa apnaya gaya:
 1. Har headed/headless run se pehle PowerShell se free memory check karna.
 2. Agar leftover Cypress-controlled Chrome process mil jaye (user ke apne Chrome tabs nahi) to usay band karna.
-3. Fail hone par 2-4 dafa retry karna.
+3. Fail hone par 2-4 dafa retry karna. Ab ye kaam `cypress.config.js` ke `retries` khud karte hain (Masla 16).
 4. Agar baar baar wahi fail ho raha ho, ek **alag, bilkul na-chheda hua** spec (jaise `login.cy.js`) chala kar confirm karna ke masla poore environment ka hai, kisi khaas test ka nahi.
+
+Is list ke pehle teen failures ke liye baad mein pakke fixes lage: Masla 16 (login/session timeouts) aur Masla 17 (product save).
 
 ### Masla 14 (design decision, bug nahi) — Alag-alag orders se ek combined order tak
 Shuru mein socha gaya tha: do alag test cases — ek Simple product banaye aur uspar order kare, doosra Variant product banaye aur uspar order kare. Lekin har `cy.loginAndEnterStore()` call (chahe fresh setup ho ya session restore) hi Masla 13 ki chronic flakiness ka "exposure point" tha. Isliye step-by-step design badla gaya:
@@ -751,9 +925,47 @@ Har step user ke apne feedback/suggestion se aaya — yeh is baat ki misaal hai 
 **Masla:** Har naya product `"Simple Product 48213"` ya `"Variant Product 48213"` naam se banta tha, aur price hamesha hardcoded (`15.00`/`25.00` ya `20.00`/`30.00`) hoti thi — dono hi "test data" hone ka saaf izhaar karte thay.
 **Fix:** `cypress/support/testData.js` bana kar ek realistic-names pool (`"Bluetooth Speaker"`, `"Leather Wallet"`, waghera) aur ek random cost/margin price-generator banaya. Har jagah (`add-product.cy.js`, `add-category.cy.js`, `new-product-order.cy.js`) ab yehi shared helper istemaal karti hai. Naam ke aakhir mein ab bhi chand digits lagte hain — yeh zaroori hai kyunke kai specs us **exact** naam se storefront par search karte hain, aur bina kisi unique hisse ke purane runs ke chore huay products se naam takra sakta hai.
 
+### Masla 16 — "This error occurred while creating the session" baar baar aata tha
+Ye error kabhi `input[name="storename"]`, kabhi `[title="Users"]`, kabhi search box na milne par aata tha.
+
+**Asal wajah:**
+1. **Naam misleading hai.** `cy.session()` ke andar hamare login ke UI steps chalte hain (login page → form → Login → store directory). In mein koi bhi step fail ho to Cypress use "creating the session" kehta hai. Masla session ka nahi, andar wale steps ka tha.
+2. **Har step ke paas sirf 4 second thay.** Site React app hai: page load ke baad bhi form aur sidebar JavaScript chalne aur API calls ke baad bante hain. Is machine par ye aksar 4 second se zyada leta hai.
+3. **Login ke baad koi "ruko" checkpoint nahi tha. Ye sabse bari wajah thi.** `login()` Login click karte hi khatam ho jata tha, aur agla step (`Users` menu dhoondna) usi waqt apna 4-second timer shuru kar deta tha. Login API, redirect aur sidebar render, teeno ko usi 4 second mein hona hota tha.
+4. **Kam memory** aur **retries band hona**: ek dafa ki slowness poora test fail kar deti thi.
+
+Is ka ek variant `cy.then() timed out after 4000ms ... restoreSession` hai: Cypress ka apna session-restore step bhi 4-second limit mein hota hai.
+
+**Fix:**
+- `LoginPage`: form ka 30s intezar, aur Login ke baad URL se `/login` hatne ka 30s intezar.
+- `StoreDirectoryPage`: har step par 15–30s timeouts.
+- `cypress.config.js` mein `retries: { runMode: 2 }`.
+
+Verification run mein `login.cy.js` ko 53 second lage aur phir bhi pass hua. Purane 4-second timeout ke saath ye pakka fail hota.
+
+**Abhi baqi:** `defaultCommandTimeout` (4s) nahi badhaya gaya, is liye session-restore wala variant ab bhi kabhi aa sakta hai. Retries is mein madad karti hain.
+
+### Masla 17 — Product save 15 second baad fail: "either the UPC modal or a success message"
+Ye error intermittent tha aur retry par pass ho jata tha. Aapne live dekh kar bataya ke **category select nahi hui thi**, aur asal wajah yahi nikli.
+
+**Investigation:**
+- Recon mein bina category Save dabaya to app ne **"Select Category"** dikhaya aur **koi request nahi bheji**. Hamara test sirf UPC modal ya success ka intezar karta tha, is liye 15 second ruk kar general error deta tha.
+- Category ke liye chip check (`assertChipSelected`) lagaya. Agle run mein usne pakra ke test ne random "option" ke tor par **"Load more"** button chun liya tha: `expected [] to include Load more`. Category list pages mein aati hai aur dropdown ke neeche "Load more" bhi ek `<button>` hai. `selectRandomOption()` saare buttons mein se random chunta tha.
+
+**Fix (`ProductFormPage.js`):**
+- `isRealOption`: random chunne se pehle "Load more" aur `Create "..."` buttons hata diye. Ye Category, Brand aur Tag teeno par lagta hai; Brand/Tag mein bhi yahi bug chupke se field khaali chhor deta tha.
+- Category select ke baad chip ka check.
+- `save()` ab validation par foran saaf error se fail hota hai, aur offline toast par retry karta hai. Purana offline-retry logic sirf modal ya success aane ke *baad* chalta tha, is liye jis soorat ke liye bana tha usme kabhi chalta hi nahi tha.
+
+Fix ke baad poora suite (8 tests) pehli hi koshish mein bina kisi retry ke pass hua.
+
+### Masla 18 — `new-product-order` ka "View Online Store" link nahi mila
+**Wajah:** `visitViaOnlineStoreLink()` ka `cy.contains("View Online Store")` default 4 second par tha. `all-tests` mein ye spec chhatay number par chalta hai, aur us waqt tak dashboard 4 second se zyada le raha tha.
+**Fix:** `{ timeout: 15000 }`, jaisa project ke baqi "page load hone do" wale steps mein hai.
+
 ---
 
-## 7. `package.json` Scripts
+## 8. `package.json` Scripts
 
 | Command | Kya karta hai |
 |---|---|
@@ -766,7 +978,11 @@ Har step user ke apne feedback/suggestion se aaya — yeh is baat ki misaal hai 
 | `npm run cypress:open` | Interactive GUI (is machine par crash karta hai — Masla 2 dekhein, istemaal na karein) |
 | `npm run watch` | File save karte hi khud dobara chala deta hai |
 
-**Note:** `storefront-search.cy.js` aur `new-product-order.cy.js` ke apne alag `npm run test:...` scripts abhi tak nahi banay — yeh dono abhi `node scripts/run-cypress.js run --spec "cypress/e2e/<file>.cy.js"` se seedha chalaye jaate hain (ya `all-tests.cy.js` ke through). Agar inke apne shortcuts chahiye hon to `package.json` mein add kiye ja sakte hain, waisay hi jaise `test:add-product`/`test:add-category` bane huay hain.
+**Note:** `storefront-search.cy.js`, `new-product-order.cy.js` aur `reports/report-reconciliation.cy.js` ke apne alag `npm run test:...` scripts abhi tak nahi banay. Ye `all-tests.cy.js` ke through chalte hain (`npm run test:all`), ya akele is tarah:
+```
+node scripts/run-cypress.js run --headed --browser chrome --no-exit --spec "cypress/e2e/reports/report-reconciliation.cy.js"
+```
+Agar inke apne shortcuts chahiye hon to `package.json` mein add kiye ja sakte hain, waisay hi jaise `test:add-product`/`test:add-category` bane huay hain.
 
 Sab commands apne terminal se seedha chala sakte hain:
 ```
@@ -776,10 +992,26 @@ npm run test:all
 
 ---
 
-## 8. Aage Naya Test Kaise Likhein
+## 9. Aage Naya Test Kaise Likhein
 
 1. Agar naye page/screen ka test hai, `cypress/pages/` mein ek nayi Page class banayein (`LoginPage.js` ki tarah) — selectors + actions ek jagah, `module.exports = new ClassName()` ke saath.
 2. Agar product-jaisa koi naya entity banana hai jiska naam/price realistic hona chahiye, `cypress/support/testData.js` ke `randomProductName()`/`randomPricePair()` dobara istemaal karein (ya wahan nayi helper add karein) — naya hardcoded naam/price na likhein.
 3. `cypress/e2e/` mein nayi `*.cy.js` file banayein, zaroori Page classes ko `require` karke use karein. Agar test ko sirf "kisi store ke andar hona" chahiye (login/store-view khud test nahi karna), `cy.loginAndEnterStore(...)` istemaal karein — apna fresh login code na likhein.
 4. `all-tests.cy.js` mein naye spec ka `require(...)` add kar dein taake woh bhi "ek hi window" wale run mein shamil ho jaye.
 5. Agar koi UI interaction "non-obvious" nikle (jaise async-loading dropdown, hidden duplicate DOM, ya server-side delay), Page class ke method ke upar hi ek chota comment likhein jo **wajah** bataye — jaisa is poori file mein har jagah kiya gaya hai. Agle kisi ko (ya khud aapko 2 mahine baad) wahi masla dobara discover nahi karna parega.
+
+### Nayi report comparison kaise add karein
+Test ka code chhedne ki zaroorat nahi:
+
+1. **Agar dono values pehle se maujood reports (dashboard, salesSummary) mein hain:** `cypress/reports/reportMappings.js` mein ek entry add karein:
+   ```js
+   {
+     left: { label: "Dashboard Total Transactions", report: "dashboard", path: "kpis.transactions.value" },
+     right: { label: "Sales Summary Total Transactions", report: "salesSummary", path: "result.total_transactions" },
+   }
+   ```
+   Field ka `path` API ke JSON response se aata hai (browser DevTools → Network tab mein response dekh lein).
+2. **Agar naya report chahiye:** pehle DevTools mein us report ki API request dekhein: endpoint aur jo extra form fields jati hain. Phir `cypress/reports/reportDefinitions.js` mein ek entry banayein (`endpoint`, `extraFields`, aur agar API apni range batati hai to `reportedRange`). Uske baad step 1 ki tarah mapping add karein.
+3. **Naya store:** `cypress.env.json` ki `reportStores` list mein naam add karein (store directory mein jis naam se search hota hai).
+4. **Naya date filter:** `cypress/reports/reconciliationConfig.js` ke `getDateRanges()` mein ek `range(label, start, end)` add karein. Ek baar ki custom range ke liye `reportStartDate`/`reportEndDate` env kaafi hai.
+5. Pehle ek **galat mapping** jaan-boojh kar daal kar chalayein aur dekhein ke test MISMATCH dikha kar fail hota hai. Phir sahi mapping rakhein. Isse confirm hota hai ke comparison waqai kuch check kar rahi hai.
