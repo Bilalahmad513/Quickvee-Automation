@@ -1,7 +1,8 @@
-// "money" -> $1,065.11, "count" -> 8
+// "money" -> $1,065.11, "count" -> 8, "percent" -> 4.04%
 function formatAmount(amount, raw, format) {
   if (amount === null) return `missing (${JSON.stringify(raw)})`;
   if (format === "count") return amount.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (format === "percent") return amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "%";
   return "$" + amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -36,11 +37,18 @@ function rowValues(row) {
 
 // e.g. "Today (2026-10-23) · Net Sales → Dashboard Total Sales Revenue: $303.00 | Sales Summary Net Sales: $303.00 | ... ✔ MATCH"
 // On a mismatch, the values that differ from the rest are marked with ⚠.
+// "✔ MATCH", "✔ MATCH (within ±$0.05)" for a match only within a mapping's
+// tolerance, or "✘ MISMATCH".
+function resultText(row) {
+  if (!row.match) return "✘ MISMATCH";
+  return row.withinTolerance ? `✔ MATCH (within ±$${row.tolerance.toFixed(2)})` : "✔ MATCH";
+}
+
 function formatLine(row) {
   return (
     `${rangeTitle(row.range)} (${rangeDates(row.range)}) · ${row.label} → ` +
     rowValues(row).map((v) => formatValue(v, row.format)).join(" | ") +
-    (row.match ? " ✔ MATCH" : " ✘ MISMATCH")
+    " " + resultText(row)
   );
 }
 
@@ -68,7 +76,7 @@ function injectLogStyles() {
 function logRow(row) {
   Cypress.log({
     name: row.match ? "match" : "mismatch",
-    displayName: row.match ? "✔ MATCH" : "✘ MISMATCH",
+    displayName: resultText(row),
     message:
       `[${row.store}] **${rangeTitle(row.range)}** (${rangeDates(row.range)}) · **${row.label}** → ` +
       rowValues(row).map((v) => formatValue(v, row.format, true)).join(" | "),
@@ -102,7 +110,7 @@ function buildHtml(rows, generatedAt) {
               )}</b></div>`
           )
           .join("")}</div></td>
-        <td class="result">${r.match ? "✔ MATCH" : "✘ MISMATCH"}</td>
+        <td class="result">${escapeHtml(resultText(r))}</td>
       </tr>`
     )
     .join("");

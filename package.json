@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "cypress:open": "node scripts/run-cypress.js open",
+    "cypress:open": "node scripts/run-cypress.js open --e2e --browser chrome",
     "cypress:run": "node scripts/run-cypress.js run --spec \"cypress/e2e/all-tests.cy.js\"",
     "cypress:headed": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/all-tests.cy.js\" --no-exit",
     "test:login": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/login.cy.js\" --no-exit",

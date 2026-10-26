@@ -49,6 +49,20 @@ module.exports = {
     ok: (body) => body.status === true,
   },
 
+  // discount_type "1,2,3,4,5" = all discount types (custom, coupon, loyalty
+  // points, mix & match, BOGO) - what the Discount Report page sends.
+  discountReport: {
+    format: "multipart",
+    endpoint: "discount_report_fact",
+    fields: () => ({ discount_type: "1,2,3,4,5" }),
+    ok: (body) => body.status === true,
+    reportedRange: (body) => ({
+      startDate: body.current_period.start_date.slice(0, 10),
+      endDate: body.current_period.end_date.slice(0, 10),
+    }),
+    reportedLocations: (body) => body.merchant_ids,
+  },
+
   // The Location Report page opens with every store selected; "Deselect All"
   // leaves only the current store, and the page then sends just that one
   // store's entry in `locations` (confirmed live). This sends the same

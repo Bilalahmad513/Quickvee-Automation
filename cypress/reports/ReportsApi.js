@@ -96,8 +96,11 @@ class ReportsApi {
         body: { merchant_id: context.merchantId, ...jsonLoginFields(context) },
       })
       .then((res) => {
-        const location = Cypress._.find(res.body.data.locations, { id: context.merchantId });
-        expect(location, `location entry for store ${context.merchantId}`).to.exist;
+        const locations = Cypress._.get(res.body, "data.locations") || [];
+        const location = Cypress._.find(locations, { id: context.merchantId });
+        // Says what the API actually returned, so a miss can be diagnosed.
+        const returned = `HTTP ${res.status}, status "${res.body && res.body.status}", source "${Cypress._.get(res.body, "data.source")}", ids [${locations.map((l) => l.id).join(", ")}]`;
+        expect(location, `location entry for store ${context.merchantId} (API returned ${returned})`).to.exist;
         context.location = location;
         return location;
       });
@@ -186,7 +189,13 @@ class ReportsApi {
         });
 
         const amounts = values.map((v) => v.amount);
-        const match = amounts.every((a) => a !== null) && Cypress._.uniq(amounts).length === 1;
+        // Compared in whole cents so float noise can't matter. A mapping's
+        // optional `tolerance` (in dollars) lets values that far apart count
+        // as a match - the row still says so, so the gap stays visible.
+        const allPresent = amounts.every((a) => a !== null);
+        const spreadCents = allPresent ? Math.round((Math.max(...amounts) - Math.min(...amounts)) * 100) : null;
+        const match = allPresent && spreadCents <= Math.round((mapping.tolerance || 0) * 100);
+        const withinTolerance = match && spreadCents > 0;
 
         if (!match) {
           const counts = Cypress._.countBy(amounts.filter((a) => a !== null));
@@ -196,7 +205,16 @@ class ReportsApi {
           });
         }
 
-        return { kind: "group", range, label: mapping.label, format: mapping.format, values, match };
+        return {
+          kind: "group",
+          range,
+          label: mapping.label,
+          format: mapping.format,
+          values,
+          match,
+          withinTolerance,
+          tolerance: mapping.tolerance,
+        };
       })
     );
   }

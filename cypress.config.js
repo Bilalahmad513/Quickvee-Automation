@@ -5,21 +5,17 @@ module.exports = defineConfig({
     baseUrl: "https://quickvee.com",
     viewportWidth: 1920,
     viewportHeight: 1080,
-    // `cypress run` (used instead of `cypress open` - see scripts/run-cypress.js
-    // for why) doesn't keep each test's step-by-step command log in the UI
-    // once it passes, to save memory. Recording video means passed tests can
-    // still be reviewed afterward by watching the recording, not just by
-    // reading screenshots (which only get captured on failure).
+    // `cypress run` never keeps a passed test's step-by-step command log (it
+    // only collects logs when interactive) - expanding passed tests step by
+    // step needs `cypress open` (npm run cypress:open). Recording video means
+    // passed `cypress run` tests can still be reviewed afterward by watching
+    // the recording, not just by reading screenshots (only taken on failure).
     video: true,
-    // A failed test is re-run up to twice in `cypress run` before counting as
-    // failed - this machine's slow, low-memory page loads regularly fail one
-    // attempt and pass the next with no code change.
-    retries: { runMode: 2, openMode: 0 },
-    // `cypress run` normally keeps no command log for passed tests (0), so a
-    // short passing test's lines vanish from the Chrome window as soon as it
-    // passes. Keeping the last few lets them be reviewed in the window -
-    // kept small because this machine runs low on memory.
-    numTestsKeptInMemory: 5,
+    // A failed test is re-run up to twice (in both `cypress run` and
+    // `cypress open`) before counting as failed - this machine's slow,
+    // low-memory page loads regularly fail one attempt and pass the next with
+    // no code change.
+    retries: { runMode: 2, openMode: 2 },
     setupNodeEvents(on, config) {
       on("task", {
         log(message) {
