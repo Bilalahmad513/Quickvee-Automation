@@ -1,5 +1,7 @@
-function formatMoney(amount, raw) {
+// "money" -> $1,065.11, "count" -> 8
+function formatAmount(amount, raw, format) {
   if (amount === null) return `missing (${JSON.stringify(raw)})`;
+  if (format === "count") return amount.toLocaleString("en-US", { maximumFractionDigits: 2 });
   return "$" + amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -11,13 +13,34 @@ function rangeDates(range) {
   return range.startDate === range.endDate ? range.startDate : `${range.startDate} to ${range.endDate}`;
 }
 
-// e.g. "Today (2026-10-23) → Dashboard Total Sales Revenue: $303.00 | Sales Summary Net Sales: $303.00 ✔ MATCH"
+function formatValue(value, format, bold = false) {
+  const amount = formatAmount(value.amount, value.raw, format);
+  const separator = value.separator || ": ";
+  return `${value.label}${separator}${bold ? `**${amount}**` : amount}${value.differs ? " ⚠" : ""}`;
+}
+
+// The values a row shows, in order. A group row (reportMappings.js) already
+// has them; a formula row (formulaChecks.js) shows the formula with its
+// inputs and result, then the value the report itself shows - flagged when
+// it's wrong, since that's the value under test.
+function rowValues(row) {
+  if (row.kind !== "formula") return row.values;
+  const inputs = Cypress._.fromPairs(
+    row.inputs.map((i) => [i.name, `${i.label} ${formatAmount(i.amount, i.raw, i.format)}`])
+  );
+  return [
+    { label: row.display(inputs), separator: " = ", amount: row.expected, raw: null },
+    { label: row.actual.label, amount: row.actual.amount, raw: row.actual.raw, differs: !row.match },
+  ];
+}
+
+// e.g. "Today (2026-10-23) · Net Sales → Dashboard Total Sales Revenue: $303.00 | Sales Summary Net Sales: $303.00 | ... ✔ MATCH"
+// On a mismatch, the values that differ from the rest are marked with ⚠.
 function formatLine(row) {
   return (
-    `${rangeTitle(row.range)} (${rangeDates(row.range)}) → ` +
-    `${row.leftLabel}: ${formatMoney(row.left, row.leftRaw)} | ` +
-    `${row.rightLabel}: ${formatMoney(row.right, row.rightRaw)} ` +
-    (row.match ? "✔ MATCH" : "✘ MISMATCH")
+    `${rangeTitle(row.range)} (${rangeDates(row.range)}) · ${row.label} → ` +
+    rowValues(row).map((v) => formatValue(v, row.format)).join(" | ") +
+    (row.match ? " ✔ MATCH" : " ✘ MISMATCH")
   );
 }
 
@@ -47,10 +70,9 @@ function logRow(row) {
     name: row.match ? "match" : "mismatch",
     displayName: row.match ? "✔ MATCH" : "✘ MISMATCH",
     message:
-      `[${row.store}] **${rangeTitle(row.range)}** (${rangeDates(row.range)}) → ` +
-      `${row.leftLabel}: **${formatMoney(row.left, row.leftRaw)}** | ` +
-      `${row.rightLabel}: **${formatMoney(row.right, row.rightRaw)}**`,
-    consoleProps: () => ({ store: row.store, range: row.range, leftRaw: row.leftRaw, rightRaw: row.rightRaw }),
+      `[${row.store}] **${rangeTitle(row.range)}** (${rangeDates(row.range)}) · **${row.label}** → ` +
+      rowValues(row).map((v) => formatValue(v, row.format, true)).join(" | "),
+    consoleProps: () => ({ store: row.store, range: row.range, check: row.label, values: rowValues(row) }),
   });
 }
 
@@ -71,8 +93,15 @@ function buildHtml(rows, generatedAt) {
         <td>${escapeHtml(r.store)}</td>
         <td>${escapeHtml(rangeTitle(r.range))}</td>
         <td>${escapeHtml(rangeDates(r.range))}</td>
-        <td><span class="label">${escapeHtml(r.leftLabel)}</span><b>${escapeHtml(formatMoney(r.left, r.leftRaw))}</b></td>
-        <td><span class="label">${escapeHtml(r.rightLabel)}</span><b>${escapeHtml(formatMoney(r.right, r.rightRaw))}</b></td>
+        <td>${escapeHtml(r.label)}</td>
+        <td><div class="values">${rowValues(r)
+          .map(
+            (v) =>
+              `<div class="value${v.differs ? " differs" : ""}"><span class="label">${escapeHtml(v.label)}</span><b>${escapeHtml(
+                formatAmount(v.amount, v.raw, r.format)
+              )}</b></div>`
+          )
+          .join("")}</div></td>
         <td class="result">${r.match ? "✔ MATCH" : "✘ MISMATCH"}</td>
       </tr>`
     )
@@ -95,6 +124,9 @@ function buildHtml(rows, generatedAt) {
   th, td { border: 1px solid #e5e7eb; padding: 10px 12px; text-align: left; vertical-align: top; }
   th { background: #f3f4f6; font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; }
   .label { display: block; font-size: 12px; color: #6b7280; margin-bottom: 2px; }
+  .values { display: flex; flex-wrap: wrap; gap: 8px; }
+  .value { min-width: 170px; padding: 6px 10px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; }
+  .value.differs { border-color: #f87171; background: #fee2e2; color: #991b1b; }
   tr.match .result { color: #166534; font-weight: 600; }
   tr.mismatch { background: #fef2f2; }
   tr.mismatch .result { color: #991b1b; font-weight: 600; }
@@ -108,7 +140,7 @@ function buildHtml(rows, generatedAt) {
   </div>
   <table>
     <thead>
-      <tr><th>Store</th><th>Date filter</th><th>Date range</th><th>Value 1</th><th>Value 2</th><th>Result</th></tr>
+      <tr><th>Store</th><th>Date filter</th><th>Date range</th><th>Check</th><th>Values</th><th>Result</th></tr>
     </thead>
     <tbody>${tableRows}
     </tbody>

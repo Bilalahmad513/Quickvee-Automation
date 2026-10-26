@@ -15,6 +15,11 @@ module.exports = defineConfig({
     // failed - this machine's slow, low-memory page loads regularly fail one
     // attempt and pass the next with no code change.
     retries: { runMode: 2, openMode: 0 },
+    // `cypress run` normally keeps no command log for passed tests (0), so a
+    // short passing test's lines vanish from the Chrome window as soon as it
+    // passes. Keeping the last few lets them be reviewed in the window -
+    // kept small because this machine runs low on memory.
+    numTestsKeptInMemory: 5,
     setupNodeEvents(on, config) {
       on("task", {
         log(message) {
