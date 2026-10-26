@@ -184,7 +184,7 @@ class ReportsApi {
     return this.fetchAll(context, range, reportNames).then((bodies) =>
       mappings.map((mapping) => {
         const values = mapping.values.map((v) => {
-          const raw = Cypress._.get(bodies[v.report], v.path);
+          const raw = v.compute ? v.compute(bodies[v.report]) : Cypress._.get(bodies[v.report], v.path);
           return { label: v.label, raw, amount: toAmount(raw) };
         });
 

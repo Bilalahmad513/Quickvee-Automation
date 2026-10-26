@@ -24,26 +24,12 @@ function getStores() {
   return [Cypress.env("storeUnderTest")];
 }
 
-// isCurrentPeriod: the range includes today (a week can run past today).
+// isCurrentPeriod: the range includes today.
 function range(label, start, end) {
   const startDate = formatDate(start);
   const endDate = formatDate(end);
   const today = formatDate(new Date());
   return { label, startDate, endDate, isCurrentPeriod: startDate <= today && today <= endDate };
-}
-
-// Monday of the week `date` is in, plus `weeksBack` weeks - weeks run
-// Monday to Sunday, the same as the dashboard's Week view.
-function mondayOf(date, weeksBack = 0) {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - weeksBack * 7);
-  return d;
-}
-
-function plusDays(date, days) {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  d.setDate(d.getDate() + days);
-  return d;
 }
 
 function getDateRanges() {
@@ -65,13 +51,10 @@ function getDateRanges() {
   return [
     range("today", now, now),
     range("yesterday", daysAgo(1), daysAgo(1)),
-    range("this week", mondayOf(now), plusDays(mondayOf(now), 6)),
-    range("last week", mondayOf(now, 1), plusDays(mondayOf(now, 1), 6)),
-    range("last 7 days", daysAgo(6), now),
-    range("last 14 days", daysAgo(13), now),
+    range("day before yesterday", daysAgo(2), daysAgo(2)),
     range("this month", new Date(year, month, 1), now),
     range("last month", new Date(year, month - 1, 1), new Date(year, month, 0)),
-    range("month before last", new Date(year, month - 2, 1), new Date(year, month - 1, 0)),
+    range("before last month", new Date(year, month - 2, 1), new Date(year, month - 1, 0)),
     range("this year", new Date(year, 0, 1), now),
   ];
 }

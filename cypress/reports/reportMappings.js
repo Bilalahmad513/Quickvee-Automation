@@ -3,6 +3,8 @@
 // reportDefinitions.js; `path` is a lodash-style path into that report's JSON
 // response; `label` is how the value is named in the logs and HTML report;
 // `format` is how the values are displayed ("money" or "count").
+// A value the report's page works out itself (no field for it in the
+// response) uses `compute: (body) => number` instead of `path`.
 // Adding a report to a comparison means adding a line to `values`; a new
 // comparison means a new entry.
 
@@ -25,6 +27,24 @@ module.exports = [
       { label: "Sales Summary Total Transactions", report: "salesSummary", path: "result.total_transactions" },
       { label: "Hourly Sales Total Transactions", report: "hourlySales", path: "result.totals.total_sales_count" },
       { label: "Location Report Sales Count", report: "locationSales", path: "data.summary.totalTransactions" },
+    ],
+  },
+  {
+    label: "Average Order Value",
+    format: "money",
+    values: [
+      { label: "Dashboard Average Order Value", report: "dashboard", path: "kpis.aov.value" },
+      // The Sales Summary's "Avg Transaction Value" isn't in its API response
+      // - the page divides net sales by total transactions itself (confirmed
+      // live: $20,424.14 ÷ 123 = $166.05), so this does the same.
+      {
+        label: "Sales Summary Avg Transaction Value",
+        report: "salesSummary",
+        compute: ({ result }) => {
+          const transactions = Number(result.total_transactions);
+          return transactions === 0 ? 0 : Number(result.gross_sales.net_sales) / transactions;
+        },
+      },
     ],
   },
   {

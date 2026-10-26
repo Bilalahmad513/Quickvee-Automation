@@ -8,18 +8,24 @@ const { formatLine, buildHtml, injectLogStyles, logRow } = require("../../report
 
 // The dashboard views the formula test clicks through, using the page's own
 // "VIEW BY" toggle and "Previous" button. Each sequence starts from a fresh
-// page load (Day view, today); every view it lands on is checked.
+// page load (Day view, today); every view it lands on is checked. Labels
+// match the date filters in reconciliationConfig.js.
 const DASHBOARD_VIEW_SEQUENCES = [
-  [{ label: "day", activeType: "Day" }],
   [
-    { label: "week", activeType: "Week", view: "Week" },
-    { label: "previous week", activeType: "Week", previous: true },
+    { label: "today", activeType: "Day" },
+    { label: "yesterday", activeType: "Day", previous: true },
+    { label: "day before yesterday", activeType: "Day", previous: true },
   ],
   [
-    { label: "month", activeType: "Month", view: "Month" },
-    { label: "previous month", activeType: "Month", previous: true },
+    { label: "this month", activeType: "Month", view: "Month" },
+    { label: "last month", activeType: "Month", previous: true },
+    { label: "before last month", activeType: "Month", previous: true },
   ],
 ];
+
+// The dashboard has no Year view (only Day/Week/Month), so these filters are
+// checked by calling the dashboard API directly for the same date range.
+const DASHBOARD_API_ONLY_RANGES = ["this year"];
 
 describe("Report Reconciliation", () => {
   const stores = getStores();
@@ -98,10 +104,11 @@ describe("Report Reconciliation", () => {
     assertAllMatched(title);
   });
 
-  // Drives the dashboard page itself through Day, Week, Previous week,
-  // Month and Previous month, and checks each formula on the exact data the
-  // page loaded for that view - the date range comes from the dashboard's
-  // own response, i.e. whatever the page shows.
+  // Drives the dashboard page itself through today, yesterday, the day
+  // before, this month, last month and the month before, and checks each
+  // formula on the exact data the page loaded for that view - the date range
+  // comes from the dashboard's own response, i.e. whatever the page shows.
+  // "This year" has no view on the page, so it's checked via the API.
   it(`dashboard formulas are correct for stores: ${stores.join(", ")}`, function () {
     const title = this.test.title;
 
@@ -129,6 +136,14 @@ describe("Report Reconciliation", () => {
             record(title, store, reportsApi.evaluateFormulas({ dashboard: body }, range, formulaChecks));
           });
         });
+      });
+
+      reportsApi.captureContext().then((context) => {
+        getDateRanges()
+          .filter((range) => DASHBOARD_API_ONLY_RANGES.includes(range.label))
+          .forEach((range) => {
+            reportsApi.checkFormulas(context, range, formulaChecks).then((results) => record(title, store, results));
+          });
       });
     });
 
