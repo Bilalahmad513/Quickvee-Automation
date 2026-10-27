@@ -92,7 +92,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-function buildHtml(rows, generatedAt) {
+function buildHtml(rows, generatedAt, title = "Report Reconciliation") {
   const mismatches = rows.filter((r) => !r.match).length;
   const tableRows = rows
     .map(
@@ -120,7 +120,7 @@ function buildHtml(rows, generatedAt) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Report Reconciliation</title>
+<title>${escapeHtml(title)}</title>
 <style>
   body { font-family: Segoe UI, Arial, sans-serif; margin: 24px; color: #1f2937; background: #f9fafb; }
   h1 { margin: 0 0 4px; font-size: 22px; }
@@ -141,7 +141,7 @@ function buildHtml(rows, generatedAt) {
 </style>
 </head>
 <body>
-  <h1>Report Reconciliation</h1>
+  <h1>${escapeHtml(title)}</h1>
   <div class="meta">Generated ${escapeHtml(generatedAt)}</div>
   <div class="summary ${mismatches ? "bad" : "ok"}">
     ${rows.length} comparisons, ${rows.length - mismatches} matched, ${mismatches} mismatched

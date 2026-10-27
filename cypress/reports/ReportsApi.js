@@ -7,8 +7,8 @@ const REPORTS_API = "https://reports-api.quickvee.us/api/reports";
 // never answered within 30s, then passed on retry.
 const REQUEST_TIMEOUT = 60000;
 
-// Gives every dashboardViewAfter() its own intercept alias.
-let dashboardCallCounter = 0;
+// Gives every reportCallAfter() its own intercept alias.
+let reportCallCounter = 0;
 
 // Sent by the app with every reports-api call - they identify the logged-in
 // user/session, not the report being asked for.
@@ -68,6 +68,8 @@ class ReportsApi {
   // not anywhere stable to read directly - so this lets the real dashboard
   // page make its own reports-api call once (for whichever store the session
   // is currently inside) and copies the auth + store id from that request.
+  // `storeIds` are the stores every report is asked for - just this one;
+  // a test can swap in several (e.g. all of the account's stores).
   captureContext() {
     cy.intercept("POST", `${REPORTS_API}/dashboard`).as("reportsContext");
     cy.visit("/merchants/dashboard");
@@ -76,6 +78,7 @@ class ReportsApi {
       return {
         authorization: request.headers.authorization,
         merchantId: fields.merchant_id,
+        storeIds: [fields.merchant_id],
         loginFields: Cypress._.pick(fields, LOGIN_FIELDS),
       };
     });
@@ -128,7 +131,7 @@ class ReportsApi {
 
         const { boundary, body } = buildMultipart({
           merchant_id: context.merchantId,
-          outlet_ids: context.merchantId,
+          outlet_ids: context.storeIds.join(","),
           start_date: range.startDate,
           end_date: range.endDate,
           ...definition.fields(args),
@@ -153,10 +156,12 @@ class ReportsApi {
             endDate: range.endDate,
           });
         }
-        if (definition.reportedLocations) {
-          expect(definition.reportedLocations(res.body), `${reportName} API's own reported stores`).to.deep.equal([
-            context.merchantId,
-          ]);
+        // null means the response has no stores to report (e.g. no data).
+        const reportedLocations = definition.reportedLocations && definition.reportedLocations(res.body);
+        if (definition.reportedLocations && reportedLocations !== null) {
+          expect([...(reportedLocations || [])].sort(), `${reportName} API's own reported stores`).to.deep.equal(
+            [...context.storeIds].sort()
+          );
         }
         return res.body;
       });
@@ -260,30 +265,36 @@ class ReportsApi {
     });
   }
 
-  // Runs `trigger` (a page load or click on the dashboard page) and yields
-  // the response of the dashboard call it caused that isWanted(requestFields,
-  // responseBody) accepts - so a test can drive the page's own Day/Week/
-  // Month/Previous controls and check exactly the data each view loaded.
+  // Runs `trigger` (a page load or click on a report page) and yields
+  // { fields, body } - the request's form fields and response body - of the
+  // `endpoint` call it caused that isWanted(fields, body) accepts. Lets a
+  // test drive a page's own controls and use exactly what the page sent.
   //
   // Each trigger gets its own fresh intercept alias, registered right before
   // it: confirmed live that with one shared alias, calls left over from
   // earlier steps (a click can fire more than one) piled up and got picked
   // up instead of the new one. A few non-matching calls are still skipped,
   // since one action can fire more than one call.
-  dashboardViewAfter(trigger, isWanted, describe) {
-    dashboardCallCounter += 1;
-    const alias = `dashboardView${dashboardCallCounter}`;
-    cy.intercept("POST", `${REPORTS_API}/dashboard`).as(alias);
+  reportCallAfter(endpoint, trigger, isWanted, describe) {
+    reportCallCounter += 1;
+    const alias = `reportCall${reportCallCounter}`;
+    cy.intercept("POST", `${REPORTS_API}/${endpoint}`).as(alias);
     trigger();
-    return this.waitForMatchingCall(alias, isWanted, describe, 5);
+    return this.waitForMatchingCall(alias, isWanted, `${endpoint} call for ${describe}`, 5);
+  }
+
+  // The dashboard page's own call for whichever view `trigger` lands on.
+  dashboardViewAfter(trigger, isWanted, describe) {
+    return this.reportCallAfter("dashboard", trigger, isWanted, describe).then(({ body }) => body);
   }
 
   waitForMatchingCall(alias, isWanted, describe, attemptsLeft) {
     return cy.wait(`@${alias}`, { timeout: 30000 }).then(({ request, response }) => {
       const fields = parseMultipart(request.body, request.headers["content-type"]);
-      if (isWanted(fields, response.body)) return response.body;
+      if (isWanted(fields, response.body)) return { fields, body: response.body };
       if (attemptsLeft > 1) return this.waitForMatchingCall(alias, isWanted, describe, attemptsLeft - 1);
-      throw new Error(`No dashboard call for ${describe} (last one was activeType "${fields.activeType}", ${fields.start_date} to ${fields.end_date}).`);
+      const sent = Cypress._.pick(fields, ["activeType", "start_date", "end_date", "outlet_ids"]);
+      throw new Error(`No ${describe} (last one sent ${JSON.stringify(sent)}).`);
     });
   }
 }

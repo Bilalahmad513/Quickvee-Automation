@@ -3,8 +3,9 @@
 // here differs per report, so adding a new report means adding an entry here
 // and nothing else.
 //
-//   format            "multipart": form fields; merchant_id/outlet_ids/
-//                     start_date/end_date and the login fields are added for you.
+//   format            "multipart": form fields; merchant_id/outlet_ids
+//                     (context.storeIds)/start_date/end_date and the login
+//                     fields are added for you.
 //                     "json": JSON body + query string; merchant_id and the
 //                     login fields are added to the body for you.
 //   fields            extra form fields (multipart) or body fields (json)
@@ -14,6 +15,7 @@
 //   ok                how this API says the call succeeded
 //   reportedRange     (optional) the date range the API says it actually used
 //   reportedLocations (optional) the store ids the API says it actually used
+//                     (null: the response has none to report, e.g. no data)
 //
 // The two "reported" checks keep a comparison from silently passing on a
 // mismatched date range or a different set of stores.
@@ -61,6 +63,54 @@ module.exports = {
       endDate: body.current_period.end_date.slice(0, 10),
     }),
     reportedLocations: (body) => body.merchant_ids,
+  },
+
+  // Sales by Category page (new-sale-report/sales-by-category). Totals cover
+  // every category, not just the returned page.
+  salesByCategory: {
+    format: "multipart",
+    endpoint: "category_sales_report_api_fact",
+    fields: () => ({ cat_name: "All", page: "1", page_size: "500" }),
+    ok: (body) => body.status === true,
+  },
+
+  // Detailed Category Report page (new-sale-report/detailed-category-report).
+  // grand_totals covers every category, not just the returned page. A range
+  // with no sales comes back as status false, "No data found" and no
+  // grand_totals at all (categoryMappings.js reads that as $0.00).
+  detailedCategory: {
+    format: "multipart",
+    endpoint: "detailed_category_sale_fact",
+    fields: ({ context }) => ({
+      category_id: "all",
+      stores: context.storeIds.join(","),
+      order_env: "1",
+      order_typ: "all",
+      order: "DESC",
+      sorting_type: "categoryTotal",
+      page: "1",
+      page_size: "10",
+    }),
+    ok: (body) => body.status === true || body.message === "No data found",
+    // Nothing to attribute to any store when there's no data.
+    reportedLocations: (body) => (body.status === true ? body.merchant_ids : null),
+  },
+
+  // Category Sold Report page (store-reporting/category-sold-report): same
+  // API as Sales by Category, but the page sends its own paging/sorting and
+  // opens with every store on the account selected in outlet_ids. This sends
+  // context.storeIds, like the other reports.
+  categorySold: {
+    format: "multipart",
+    endpoint: "category_sales_report_api_fact",
+    fields: () => ({
+      search_by: "",
+      sort_field: "subtotal",
+      sort_order: "desc",
+      page: "1",
+      page_size: "25",
+    }),
+    ok: (body) => body.status === true,
   },
 
   // The Location Report page opens with every store selected; "Deselect All"
