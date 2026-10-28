@@ -42,6 +42,20 @@ class DashboardPage {
     this.waitUntilLoaded();
     return cy.contains(/^Previous$/, { timeout: 15000 }).click();
   }
+
+  // The "Locations" picker: ticks "All Locations (N)" (only if it isn't
+  // ticked already) and closes it with "Done". The page opens with only the
+  // current store selected and remembers the choice for the rest of the
+  // browser session, so later loads of the dashboard keep every store.
+  selectAllLocations() {
+    this.waitUntilLoaded();
+    cy.get(".qv-dashboard-location__trigger", { timeout: 15000 }).click();
+    cy.get(".qv-dashboard-location-menu__all label", { timeout: 15000 }).then(($label) => {
+      if (!$label.find("input")[0].checked) cy.wrap($label).click();
+    });
+    cy.contains("button", /^Done$/).click();
+    return cy.get(".qv-dashboard-location__trigger").should("contain.text", "All Locations");
+  }
 }
 
 module.exports = new DashboardPage();

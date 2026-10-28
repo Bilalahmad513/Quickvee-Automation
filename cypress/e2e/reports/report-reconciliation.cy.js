@@ -1,9 +1,13 @@
 const storeDirectoryPage = require("../../pages/StoreDirectoryPage");
 const dashboardPage = require("../../pages/DashboardPage");
+const salesSummaryPage = require("../../pages/SalesSummaryPage");
+const hourlySalesReportPage = require("../../pages/HourlySalesReportPage");
+const discountReportPage = require("../../pages/DiscountReportPage");
+const locationReportPage = require("../../pages/LocationReportPage");
 const reportsApi = require("../../reports/ReportsApi");
 const reportMappings = require("../../reports/reportMappings");
 const formulaChecks = require("../../reports/formulaChecks");
-const { getStores, getDateRanges } = require("../../reports/reconciliationConfig");
+const { getStores, getAllStoresStores, getDateRanges } = require("../../reports/reconciliationConfig");
 const { formatLine, buildHtml, injectLogStyles, logRow } = require("../../reports/reconciliationReport");
 
 // The dashboard views the formula test clicks through, using the page's own
@@ -27,8 +31,51 @@ const DASHBOARD_VIEW_SEQUENCES = [
 // checked by calling the dashboard API directly for the same date range.
 const DASHBOARD_API_ONLY_RANGES = ["this year"];
 
+const DASHBOARD_ALL_STORES = {
+  name: "Dashboard",
+  endpoint: "dashboard",
+  open: () => dashboardPage.visitOnToday(),
+  selectAll: () => dashboardPage.selectAllLocations(),
+};
+
+// Each report page, how to select every store in its picker, and the API
+// call that selection makes - the store ids it sends are what the
+// all-stores tests use.
+const ALL_STORES_PAGES = [
+  DASHBOARD_ALL_STORES,
+  {
+    name: "Overall Sales Summary",
+    endpoint: "sales_report_api_fact",
+    open: () => salesSummaryPage.visit(),
+    selectAll: () => salesSummaryPage.selectAllStoresAndSearch(),
+  },
+  {
+    name: "Hourly Sales Report",
+    endpoint: "hourly_sales_fact",
+    open: () => hourlySalesReportPage.visit(),
+    selectAll: () => hourlySalesReportPage.selectAllStoresAndSearch(),
+  },
+  {
+    name: "Discounts Report",
+    endpoint: "discount_report_fact",
+    open: () => discountReportPage.visit(),
+    selectAll: () => discountReportPage.selectAllStoresAndSearch(),
+  },
+  {
+    name: "Location Report",
+    endpoint: "location-sales-fact",
+    open: () => locationReportPage.visit(),
+    selectAll: () => locationReportPage.selectAllLocations(),
+    // A JSON body listing each selected store's {id, name, city, state}.
+    sentIds: (fields) => (fields.locations || []).map((l) => l.id),
+  },
+];
+
+const allStoresLabel = (store, storeIds) => `${store} + all stores (${storeIds.length})`;
+
 describe("Report Reconciliation", () => {
   const stores = getStores();
+  const allStoresStores = getAllStoresStores();
   const rowsByTest = {};
 
   before(() => {
@@ -60,8 +107,8 @@ describe("Report Reconciliation", () => {
   // form is never filled in again here: the first store comes from the
   // cached login session, every store after that is reached via "Back to
   // Super Admin" -> store directory, same as a person switching stores.
-  function forEachStore(inStore) {
-    stores.forEach((store, index) => {
+  function forEachStore(storeNames, inStore) {
+    storeNames.forEach((store, index) => {
       if (index === 0) {
         cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), store);
       } else {
@@ -90,13 +137,86 @@ describe("Report Reconciliation", () => {
     });
   }
 
+  // Compares the reports for every date filter, asked for context.storeIds.
+  function reconcileAllRanges(testTitle, storeLabel, context) {
+    getDateRanges().forEach((range) => {
+      reportsApi.reconcile(context, range, reportMappings).then((results) => record(testTitle, storeLabel, results));
+    });
+  }
+
+  // Drives the dashboard page itself through today, yesterday, the day
+  // before, this month, last month and the month before, and checks each
+  // formula on the exact data the page loaded for that view - the date range
+  // comes from the dashboard's own response, i.e. whatever the page shows.
+  // With `storeIds`, a view only counts if the page asked for exactly those
+  // stores. "This year" has no view on the page, so it's checked via the API.
+  function checkDashboardFormulas(testTitle, storeLabel, storeIds) {
+    DASHBOARD_VIEW_SEQUENCES.forEach((sequence) => {
+      let lastRange = null;
+
+      sequence.forEach((step, index) => {
+        // The first step of a sequence starts from a fresh load on today;
+        // later steps are a click on the page's own controls.
+        const trigger = () => {
+          if (index === 0) dashboardPage.visitOnToday();
+          if (step.view) dashboardPage.selectView(step.view);
+          if (step.previous) dashboardPage.goToPreviousPeriod();
+        };
+
+        // A "previous" step must land on a different period than the view
+        // before it, or it would re-check the same data.
+        const isWanted = (fields, body) =>
+          fields.activeType === step.activeType &&
+          (!step.previous || body.headline.start !== lastRange.startDate) &&
+          (!storeIds || Cypress._.isEqual(fields.outlet_ids.split(",").sort(), storeIds));
+
+        reportsApi.dashboardViewAfter(trigger, isWanted, `the "${step.label}" view`).then((body) => {
+          const range = { label: step.label, startDate: body.headline.start, endDate: body.headline.end };
+          lastRange = range;
+          record(testTitle, storeLabel, reportsApi.evaluateFormulas({ dashboard: body }, range, formulaChecks));
+        });
+      });
+    });
+
+    reportsApi.captureContext().then((context) => {
+      const storesContext = storeIds ? { ...context, storeIds } : context;
+      getDateRanges()
+        .filter((range) => DASHBOARD_API_ONLY_RANGES.includes(range.label))
+        .forEach((range) => {
+          reportsApi.checkFormulas(storesContext, range, formulaChecks).then((results) => record(testTitle, storeLabel, results));
+        });
+    });
+  }
+
   it(`report values match across reports for stores: ${stores.join(", ")}`, function () {
     const title = this.test.title;
 
-    forEachStore((store) => {
-      reportsApi.captureContext().then((context) => {
-        getDateRanges().forEach((range) => {
-          reportsApi.reconcile(context, range, reportMappings).then((results) => record(title, store, results));
+    forEachStore(stores, (store) => {
+      reportsApi.captureContext().then((context) => reconcileAllRanges(title, store, context));
+    });
+
+    assertAllMatched(title);
+  });
+
+  it(`dashboard formulas are correct for stores: ${stores.join(", ")}`, function () {
+    const title = this.test.title;
+
+    forEachStore(stores, (store) => checkDashboardFormulas(title, store));
+
+    assertAllMatched(title);
+  });
+
+  // Selects every store in each report page's own picker, takes the store
+  // ids each page then sent, checks all the pages agree on them, and
+  // compares the reports for those stores together.
+  it(`report values match across reports with all stores selected for: ${allStoresStores.join(", ")}`, function () {
+    const title = this.test.title;
+
+    forEachStore(allStoresStores, (store) => {
+      reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
+        reportsApi.captureContext().then((context) => {
+          expect(storeIds, `all stores include ${store}'s own id`).to.include(context.merchantId);
+          reconcileAllRanges(title, allStoresLabel(store, storeIds), { ...context, storeIds });
         });
       });
     });
@@ -104,46 +224,15 @@ describe("Report Reconciliation", () => {
     assertAllMatched(title);
   });
 
-  // Drives the dashboard page itself through today, yesterday, the day
-  // before, this month, last month and the month before, and checks each
-  // formula on the exact data the page loaded for that view - the date range
-  // comes from the dashboard's own response, i.e. whatever the page shows.
-  // "This year" has no view on the page, so it's checked via the API.
-  it(`dashboard formulas are correct for stores: ${stores.join(", ")}`, function () {
+  // Same formula checks on the dashboard with every store selected in its
+  // Locations picker - the page keeps that selection for the views it then
+  // clicks through.
+  it(`dashboard formulas are correct with all stores selected for: ${allStoresStores.join(", ")}`, function () {
     const title = this.test.title;
 
-    forEachStore((store) => {
-      DASHBOARD_VIEW_SEQUENCES.forEach((sequence) => {
-        let lastRange = null;
-
-        sequence.forEach((step, index) => {
-          // The first step of a sequence starts from a fresh load on today;
-          // later steps are a click on the page's own controls.
-          const trigger = () => {
-            if (index === 0) dashboardPage.visitOnToday();
-            if (step.view) dashboardPage.selectView(step.view);
-            if (step.previous) dashboardPage.goToPreviousPeriod();
-          };
-
-          // A "previous" step must land on a different period than the view
-          // before it, or it would re-check the same data.
-          const isWanted = (fields, body) =>
-            fields.activeType === step.activeType && (!step.previous || body.headline.start !== lastRange.startDate);
-
-          reportsApi.dashboardViewAfter(trigger, isWanted, `the "${step.label}" view`).then((body) => {
-            const range = { label: step.label, startDate: body.headline.start, endDate: body.headline.end };
-            lastRange = range;
-            record(title, store, reportsApi.evaluateFormulas({ dashboard: body }, range, formulaChecks));
-          });
-        });
-      });
-
-      reportsApi.captureContext().then((context) => {
-        getDateRanges()
-          .filter((range) => DASHBOARD_API_ONLY_RANGES.includes(range.label))
-          .forEach((range) => {
-            reportsApi.checkFormulas(context, range, formulaChecks).then((results) => record(title, store, results));
-          });
+    forEachStore(allStoresStores, (store) => {
+      reportsApi.storeIdsWithAllSelected([DASHBOARD_ALL_STORES]).then((storeIds) => {
+        checkDashboardFormulas(title, allStoresLabel(store, storeIds), storeIds);
       });
     });
 

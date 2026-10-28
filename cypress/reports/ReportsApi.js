@@ -25,6 +25,11 @@ const LOGIN_FIELDS = [
   "login_user_email",
 ];
 
+// "A,B,C" -> ["A", "B", "C"]; nothing -> [].
+function idsOf(value) {
+  return (value || "").split(",").filter(Boolean);
+}
+
 function parseMultipart(body, contentType) {
   const boundary = contentType.split("boundary=")[1];
   const fields = {};
@@ -88,11 +93,11 @@ class ReportsApi {
     });
   }
 
-  // This store's {id, name, city, state} entry, from the same locations list
-  // the Location Report page loads for its store picker. Looked up once per
-  // store and kept on the context.
-  ensureLocation(context) {
-    if (context.location) return cy.wrap(context.location, { log: false });
+  // The {id, name, city, state} entry of each of context.storeIds, from the
+  // same locations list the Location Report page loads for its store picker.
+  // Looked up once per context and kept on it.
+  ensureLocations(context) {
+    if (context.locations) return cy.wrap(context.locations, { log: false });
     return cy
       .request({
         method: "POST",
@@ -103,14 +108,47 @@ class ReportsApi {
         body: { merchant_id: context.merchantId, ...jsonLoginFields(context) },
       })
       .then((res) => {
-        const locations = Cypress._.get(res.body, "data.locations") || [];
-        const location = Cypress._.find(locations, { id: context.merchantId });
+        const all = Cypress._.get(res.body, "data.locations") || [];
         // Says what the API actually returned, so a miss can be diagnosed.
-        const returned = `HTTP ${res.status}, status "${res.body && res.body.status}", source "${Cypress._.get(res.body, "data.source")}", ids [${locations.map((l) => l.id).join(", ")}]`;
-        expect(location, `location entry for store ${context.merchantId} (API returned ${returned})`).to.exist;
-        context.location = location;
-        return location;
+        const returned = `HTTP ${res.status}, status "${res.body && res.body.status}", source "${Cypress._.get(res.body, "data.source")}", ids [${all.map((l) => l.id).join(", ")}]`;
+        const locations = context.storeIds.map((id) => {
+          const location = Cypress._.find(all, { id });
+          expect(location, `location entry for store ${id} (API returned ${returned})`).to.exist;
+          return location;
+        });
+        context.locations = locations;
+        return locations;
       });
+  }
+
+  // Opens each report page in `pages` ({ name, endpoint, open, selectAll,
+  // sentIds? }), selects every store in the page's own picker, and takes the
+  // store ids the page then sent (outlet_ids, unless the page's sentIds()
+  // reads them from elsewhere). Every page must have sent the same stores;
+  // yields them, sorted.
+  storeIdsWithAllSelected(pages) {
+    const idsByPage = {};
+
+    pages.forEach((page) => {
+      const sentIds = page.sentIds || ((fields) => idsOf(fields.outlet_ids));
+      page.open();
+      // More than one store id means the page has switched from its
+      // single-store default (or a cleared selection) to every store.
+      this.reportCallAfter(page.endpoint, page.selectAll, (fields) => sentIds(fields).length > 1, `"${page.name}" with all stores selected`).then(
+        ({ fields }) => {
+          idsByPage[page.name] = [...sentIds(fields)].sort();
+          cy.task("log", `${page.name} all stores: ${idsByPage[page.name].join(", ")}`, { log: false });
+        }
+      );
+    });
+
+    return cy.then(() => {
+      const [firstName, ...otherNames] = Object.keys(idsByPage);
+      otherNames.forEach((name) => {
+        expect(idsByPage[name], `${name} stores = ${firstName} stores`).to.deep.equal(idsByPage[firstName]);
+      });
+      return idsByPage[firstName];
+    });
   }
 
   // Yields the report's response body. For a report with `allPages` (see
@@ -119,7 +157,7 @@ class ReportsApi {
   // body.
   fetch(reportName, context, range) {
     const definition = REPORT_DEFINITIONS[reportName];
-    const before = definition.needsLocation ? this.ensureLocation(context) : cy.wrap(null, { log: false });
+    const before = definition.needsLocations ? this.ensureLocations(context) : cy.wrap(null, { log: false });
 
     return before
       .then(() => this.fetchPage(reportName, context, range, 1))
@@ -336,9 +374,11 @@ class ReportsApi {
   }
 
   // Runs `trigger` (a page load or click on a report page) and yields
-  // { fields, body } - the request's form fields and response body - of the
-  // `endpoint` call it caused that isWanted(fields, body) accepts. Lets a
-  // test drive a page's own controls and use exactly what the page sent.
+  // { fields, body } - the request's form fields (or JSON body) and the
+  // response body - of the `endpoint` call it caused that isWanted(fields,
+  // body) accepts. Lets a test drive a page's own controls and use exactly
+  // what the page sent. Matched on the path, so calls with a query string
+  // (e.g. location-sales-fact?start_date=...) are caught too.
   //
   // Each trigger gets its own fresh intercept alias, registered right before
   // it: confirmed live that with one shared alias, calls left over from
@@ -348,7 +388,8 @@ class ReportsApi {
   reportCallAfter(endpoint, trigger, isWanted, describe) {
     reportCallCounter += 1;
     const alias = `reportCall${reportCallCounter}`;
-    cy.intercept("POST", `${REPORTS_API}/${endpoint}`).as(alias);
+    const { hostname, pathname } = new URL(`${REPORTS_API}/${endpoint}`);
+    cy.intercept({ method: "POST", hostname, pathname }).as(alias);
     trigger();
     return this.waitForMatchingCall(alias, isWanted, `${endpoint} call for ${describe}`, 5);
   }
@@ -360,7 +401,8 @@ class ReportsApi {
 
   waitForMatchingCall(alias, isWanted, describe, attemptsLeft) {
     return cy.wait(`@${alias}`, { timeout: 30000 }).then(({ request, response }) => {
-      const fields = parseMultipart(request.body, request.headers["content-type"]);
+      const fields =
+        typeof request.body === "object" ? request.body : parseMultipart(request.body, request.headers["content-type"]);
       if (isWanted(fields, response.body)) return { fields, body: response.body };
       if (attemptsLeft > 1) return this.waitForMatchingCall(alias, isWanted, describe, attemptsLeft - 1);
       const sent = Cypress._.pick(fields, ["activeType", "start_date", "end_date", "outlet_ids"]);

@@ -37,8 +37,6 @@ const ALL_STORES_PAGES = [
   },
 ];
 
-const idsOf = (field) => (field || "").split(",").filter(Boolean);
-
 describe("Category Report Reconciliation", () => {
   const rowsByTest = {};
 
@@ -115,7 +113,6 @@ describe("Category Report Reconciliation", () => {
   // compares the reports for those stores together.
   it(`category report values match for store: ${STORE} with all stores selected`, function () {
     const title = this.test.title;
-    const storeIdsByPage = {};
 
     enterStore().then(({ context, storeName }) => {
       ALL_STORES_PAGES.forEach((page) => {
@@ -159,34 +156,11 @@ describe("Category Report Reconciliation", () => {
       categorySoldReportPage.visit();
       cy.task("clearDownloads");
 
-      reportsApi
-        .reportCallAfter("category_sold_report_consolidated", () => categorySoldReportPage.exportCsv(), () => true, "Export CSV")
-        .then(({ fields, body }) => {
-          const storeIds = idsOf(fields.outlet_ids);
-          const file = `cypress/downloads/category_sold_report_${fields.start_date}_to_${fields.end_date}.csv`;
-          cy.readFile(file, { timeout: 30000 }).then((downloaded) => {
-            expect(normalizeCsv(downloaded), `downloaded ${file} = Export CSV API answer`).to.equal(normalizeCsv(body));
-          });
-
-          const pageFields = Cypress._.omit(fields, ["outlet_ids", "start_date", "end_date"]);
-          const selections = [
-            { label: storeName, storeIds: [context.merchantId] },
-            { label: allStoresLabel(storeName, storeIds), storeIds },
-          ];
-
-          selections.forEach((selection) => {
-            const selectionContext = { ...context, storeIds: selection.storeIds };
-            getDateRanges().forEach((range) => {
-              reportsApi.categorySoldExportCsv(selectionContext, range, pageFields).then((csv) => {
-                reportsApi.fetchAll(selectionContext, range, ["categorySoldAllRows"]).then((bodies) => {
-                  record(title, selection.label, compareCategorySoldCsv(csv, bodies.categorySoldAllRows, range));
-                });
-              });
-            });
-          });
-        });
+    reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
+      reportsApi.captureContext().then((context) => {
+        expect(storeIds, `all stores include ${STORE}'s own id`).to.include(context.merchantId);
+        reconcileAllRanges(title, { ...context, storeIds }, `${STORE} + all stores (${storeIds.length})`);
+      });
     });
-
-    assertAllMatched(title);
   });
 });
