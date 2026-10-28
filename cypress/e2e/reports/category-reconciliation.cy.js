@@ -35,8 +35,6 @@ const ALL_STORES_PAGES = [
   },
 ];
 
-const idsOf = (field) => (field || "").split(",").filter(Boolean);
-
 describe("Category Report Reconciliation", () => {
   const rowsByTest = {};
 
@@ -96,34 +94,14 @@ describe("Category Report Reconciliation", () => {
   // compares the reports for those stores together.
   it(`category report values match for store: ${STORE} with all stores selected`, function () {
     const title = this.test.title;
-    const storeIdsByPage = {};
 
     cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), STORE);
 
-    ALL_STORES_PAGES.forEach((page) => {
-      page.open();
-      // More than one store id means the page has switched from its
-      // single-store default to the full selection.
-      reportsApi
-        .reportCallAfter(page.endpoint, page.selectAll, (fields) => idsOf(fields.outlet_ids).length > 1, `"${page.name}" with all stores selected`)
-        .then(({ fields }) => {
-          storeIdsByPage[page.name] = idsOf(fields.outlet_ids);
-          if (fields.stores !== undefined) {
-            expect(idsOf(fields.stores), `${page.name} stores field`).to.deep.equal(storeIdsByPage[page.name]);
-          }
-          cy.task("log", `[${STORE}] ${page.name} all stores: ${storeIdsByPage[page.name].join(", ")}`, { log: false });
-        });
-    });
-
-    reportsApi.captureContext().then((context) => {
-      const [first, ...others] = Object.values(storeIdsByPage);
-      const storeIds = [...first].sort();
-      others.forEach((ids, index) => {
-        expect([...ids].sort(), `${ALL_STORES_PAGES[index + 1].name} stores = ${ALL_STORES_PAGES[0].name} stores`).to.deep.equal(storeIds);
+    reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
+      reportsApi.captureContext().then((context) => {
+        expect(storeIds, `all stores include ${STORE}'s own id`).to.include(context.merchantId);
+        reconcileAllRanges(title, { ...context, storeIds }, `${STORE} + all stores (${storeIds.length})`);
       });
-      expect(storeIds, `all stores include ${STORE}'s own id`).to.include(context.merchantId);
-
-      reconcileAllRanges(title, { ...context, storeIds }, `${STORE} + all stores (${storeIds.length})`);
     });
   });
 });

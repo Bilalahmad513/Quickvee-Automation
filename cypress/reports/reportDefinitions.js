@@ -10,8 +10,9 @@
 //                     login fields are added to the body for you.
 //   fields            extra form fields (multipart) or body fields (json)
 //   query             query-string params (json only)
-//   needsLocation     the request needs this store's {id, name, city, state}
-//                     entry (context.location), looked up once per store
+//   needsLocations    the request needs the {id, name, city, state} entry of
+//                     each of context.storeIds (context.locations), looked
+//                     up once per context
 //   allPages          (optional) the API returns rows a page at a time:
 //                     { rows: path to the rows, rowKey(row) identifying a row,
 //                       hasMore(body), totalRows(body) }.
@@ -134,13 +135,13 @@ module.exports = {
 
   // The Location Report page opens with every store selected; "Deselect All"
   // leaves only the current store, and the page then sends just that one
-  // store's entry in `locations` (confirmed live). This sends the same
-  // single-store request, and reportedLocations confirms the API really used
-  // only this store rather than totalling all of them.
+  // store's entry in `locations` (confirmed live). This sends the entries of
+  // context.storeIds - just the current store unless a test asks for more -
+  // and reportedLocations confirms the API used exactly those stores.
   locationSales: {
     format: "json",
     endpoint: "location-sales-fact",
-    needsLocation: true,
+    needsLocations: true,
     query: ({ context, range }) => ({
       start_date: range.startDate,
       end_date: range.endDate,
@@ -150,7 +151,7 @@ module.exports = {
       sort_by: "netSales",
       sort_order: "desc",
     }),
-    fields: ({ context }) => ({ locations: [context.location] }),
+    fields: ({ context }) => ({ locations: context.locations }),
     ok: (body) => body.status === "success",
     reportedRange: (body) => ({ startDate: body.data.dateRange.startDate, endDate: body.data.dateRange.endDate }),
     reportedLocations: (body) => body.data.locations.map((l) => l.locationId),

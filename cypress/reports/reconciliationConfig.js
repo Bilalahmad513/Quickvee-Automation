@@ -2,6 +2,7 @@
 // the usual storeUnderTest and a few standard ranges; override from
 // cypress.env.json (or --env) without touching code:
 //   "reportStores": ["storeb", "monster04"]   (or "storeb,monster04")
+//   "reportAllStoresStores": ["storeb"]       (or "storeb,monster04")
 //   "reportStartDate": "2026-10-01", "reportEndDate": "2026-10-15"
 
 function formatDate(date) {
@@ -15,13 +16,26 @@ function daysAgo(n) {
   return d;
 }
 
-function getStores() {
-  const configured = Cypress.env("reportStores");
+// A store list from cypress.env.json: an array, or a comma-separated string.
+function storeList(envKey, fallback) {
+  const configured = Cypress.env(envKey);
   if (Array.isArray(configured) && configured.length) return configured;
   if (typeof configured === "string" && configured.trim()) {
     return configured.split(",").map((s) => s.trim()).filter(Boolean);
   }
-  return [Cypress.env("storeUnderTest")];
+  return fallback;
+}
+
+// Stores checked one at a time (just that store selected in each report).
+function getStores() {
+  return storeList("reportStores", [Cypress.env("storeUnderTest")]);
+}
+
+// Stores checked with every store on their account selected in each
+// report's store picker. Starts with storeb; add more as their data needs
+// verifying.
+function getAllStoresStores() {
+  return storeList("reportAllStoresStores", ["storeb"]);
 }
 
 // isCurrentPeriod: the range includes today.
@@ -59,4 +73,4 @@ function getDateRanges() {
   ];
 }
 
-module.exports = { getStores, getDateRanges };
+module.exports = { getStores, getAllStoresStores, getDateRanges };
