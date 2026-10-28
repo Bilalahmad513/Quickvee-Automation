@@ -12,6 +12,11 @@
 //   query             query-string params (json only)
 //   needsLocation     the request needs this store's {id, name, city, state}
 //                     entry (context.location), looked up once per store
+//   allPages          (optional) the API returns rows a page at a time:
+//                     { rows: path to the rows, rowKey(row) identifying a row,
+//                       hasMore(body), totalRows(body) }.
+//                     Every page is fetched (fields/query get `page`) and the
+//                     rows are combined into one body.
 //   ok                how this API says the call succeeded
 //   reportedRange     (optional) the date range the API says it actually used
 //   reportedLocations (optional) the store ids the API says it actually used
@@ -99,17 +104,31 @@ module.exports = {
   // Category Sold Report page (store-reporting/category-sold-report): same
   // API as Sales by Category, but the page sends its own paging/sorting and
   // opens with every store on the account selected in outlet_ids. This sends
-  // context.storeIds, like the other reports.
+  // context.storeIds, like the other reports. The page shows no quantity
+  // total - its Sold Qty column is added up from the rows, so every page of
+  // rows (25 per page, same as the page) is fetched.
+  //
+  // Sorted by category name, not by subtotal like the page: confirmed live
+  // that paging by subtotal isn't stable - categories with equal subtotals
+  // (e.g. many at $0) swap places between calls, so the same category came
+  // back on two pages and another on none (6 out of 6 tries, quantity off by
+  // up to 2). By name, 4 out of 4 tries gave every category exactly once.
   categorySold: {
     format: "multipart",
     endpoint: "category_sales_report_api_fact",
-    fields: () => ({
+    fields: ({ page }) => ({
       search_by: "",
-      sort_field: "subtotal",
-      sort_order: "desc",
-      page: "1",
+      sort_field: "category_name",
+      sort_order: "asc",
+      page: String(page),
       page_size: "25",
     }),
+    allPages: {
+      rows: "category_sale_data",
+      rowKey: (row) => JSON.stringify(row.category_ids),
+      hasMore: (body) => body.has_more === true,
+      totalRows: (body) => body.total_categories,
+    },
     ok: (body) => body.status === true,
   },
 
