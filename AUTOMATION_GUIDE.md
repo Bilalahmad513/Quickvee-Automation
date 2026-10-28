@@ -2,7 +2,7 @@
 
 Yeh file is `cypress-automation` project ka poora walkthrough hai — har file kyun bani, kya karti hai, aur jo bugs raaste mein aaye unki asal wajah kya thi. Maqsad: aap khud is code ko dekh kar samajh sakein aur aage khud extend kar sakein.
 
-Yeh guide project ke shuru (sirf login + store-view) se lekar ab tak (product creation, storefront order placement, admin order verification/pickup, aur reports ke numbers aapas mein match karne wala "report reconciliation" framework) ka poora safar cover karta hai.
+Yeh guide project ke shuru (sirf login + store-view) se lekar ab tak (product creation, storefront order placement, admin order verification/pickup, aur reports ke numbers aapas mein match karne wala "report reconciliation" framework) ka poora safar cover karta hai. Report wala hissa ab Dashboard + 4 sales reports aur 3 category reports, single store aur all stores dono, cover karta hai.
 
 ---
 
@@ -25,13 +25,16 @@ cypress-automation/
     │   ├── storefront-search.cy.js
     │   ├── new-product-order.cy.js
     │   ├── reports/
-    │   │   └── report-reconciliation.cy.js  → Reports ke numbers aapas mein match karne wala test
+    │   │   ├── report-reconciliation.cy.js    → Dashboard + 4 sales reports aapas mein match
+    │   │   └── category-reconciliation.cy.js  → 3 category reports aapas mein match
     │   └── all-tests.cy.js
     ├── reports/                  → Report reconciliation framework (section 5)
-    │   ├── reportDefinitions.js  → Har report API ka endpoint + extra params
-    │   ├── reportMappings.js     → Kaunsi value kis value ke barabar honi chahiye
+    │   ├── reportDefinitions.js  → Har report API ka endpoint, params, guards
+    │   ├── reportMappings.js     → Sales reports: kaunsi values barabar honi chahiye
+    │   ├── categoryMappings.js   → Category reports: kaunsi values barabar honi chahiye
+    │   ├── formulaChecks.js      → Dashboard ke formulas (AOV, Discounts Given %)
     │   ├── reconciliationConfig.js → Stores + date filters
-    │   ├── ReportsApi.js         → Auth capture, API calls, comparison
+    │   ├── ReportsApi.js         → Auth capture, API calls, paging, comparison
     │   └── reconciliationReport.js → Colored command-log rows + HTML report
     ├── reports-output/           → Har run ki HTML report (gitignored)
     ├── pages/                    → Page Object Model classes
@@ -43,7 +46,16 @@ cypress-automation/
     │   ├── StorefrontPage.js
     │   ├── ProductDetailPage.js
     │   ├── CheckoutPage.js
-    │   └── OrdersPage.js
+    │   ├── OrdersPage.js
+    │   ├── DashboardPage.js            → Dashboard views + "All Locations"
+    │   ├── SalesSummaryPage.js         ┐
+    │   ├── HourlySalesReportPage.js    │
+    │   ├── DiscountReportPage.js       │ Report pages: kholna +
+    │   ├── LocationReportPage.js       │ sab stores select karna
+    │   ├── SalesByCategoryPage.js      │
+    │   ├── DetailedCategoryReportPage.js│
+    │   ├── CategorySoldReportPage.js   ┘
+    │   └── reportStorePickers.js       → Store pickers jo kai report pages par same hain
     └── support/
         ├── e2e.js
         ├── commands.js            → `cy.loginAndEnterStore()` custom command (session caching)
@@ -531,6 +543,28 @@ confirmPickedUp(orderId) { /* asserts the stepper's earlier steps show completed
 ```
 `searchOrderId()` mein `.clear()` baad mein add hua — tafseel Masla 11 mein.
 
+### `cypress/pages/DashboardPage.js`
+
+Dashboard page jise formula test khud chalata hai.
+
+- `visitOnToday()`: dashboard kholta hai aur pehle `sessionStorage` se uski "yaad rakhi hui" view (`qv_dashboard_activeType`, `qv_dashboard_presentDate`) hata deta hai, taake page hamesha Day view, aaj par khule (Masla 19).
+- `waitUntilLoaded()`: jab tak loading overlay (`.qv-dashboard-loading-backdrop`) dikh raha ho, ruka rehta hai (Masla 21).
+- `selectView("Day" | "Week" | "Month")`, `goToPreviousPeriod()`: "VIEW BY" aur "Previous" buttons.
+- `selectAllLocations()`: "Locations" picker mein "All Locations (N)" tick karta hai aur "Done" dabata hai. Page ye selection baqi browser session ke liye yaad rakhta hai.
+
+### Report pages aur `reportStorePickers.js`
+
+Har report page ka apna chhota page object hai: `visit()` aur "sab stores select karo". Kai pages ek hi picker component use karte hain, is liye picker ka code ek jagah `reportStorePickers.js` mein hai:
+
+| Picker | Kin pages par | Kaise select hota hai |
+|---|---|---|
+| "Stores" filter (`selectAllInStoresFilter`) | Overall Sales Summary, Hourly Sales Report, Sales by Category | "All Stores" tick (agar pehle se na ho) → bahar click → **Search** |
+| "Outlet" dropdown (`selectAllInOutletDropDown`) | Discounts Report, Category Sales (Detailed) | Khule hue menu mein "All" tick → Esc → **Search** |
+| "Select All" popover (`selectAllInSelectAllPopover`) | Location Report, Category Sold Report | Ye pages pehle se sab stores ke saath khulte hain: "Deselect All" → "Select All" (taake click waqai ho). Inme Search nahi, har change par data khud reload hota hai |
+| Dashboard "Locations" (`DashboardPage.selectAllLocations`) | Dashboard | "All Locations (N)" tick → **Done** |
+
+Har picker pehle check karta hai ke "All" pehle se ticked to nahi. Dobara click karne se saare stores untick ho jate.
+
 ---
 
 ## 3. Support Files
@@ -689,32 +723,56 @@ it("creates a simple and a variant product, and places one order containing both
 Yeh ek hi test case **do products banata hai, dono ko ek hi cart mein daal kar ek hi order place karta hai, aur sirf 2 login/session operations istemaal karta hai** (1 shuru mein, 1 order verify karne ke liye). Is final design tak pohanchne mein kai iterations lagi — tafseel Masla 8, 9, 10, 12, 14 mein.
 
 ### `reports/report-reconciliation.cy.js`
-Reports ke numbers aapas mein match karta hai, jaise Dashboard ka "Total Sales Revenue" aur Sales Summary ka "Net Sales". Poora framework section 5 mein hai. Short mein:
+Dashboard aur 4 sales reports ke numbers aapas mein match karta hai. Poora framework section 5 mein hai. Is spec mein 4 tests hain:
+
+| Test | Kya karta hai |
+|---|---|
+| `report values match across reports for stores: ...` | `reportStores` ke har store ke andar (sirf wohi ek store selected) 5 reports ki values, 7 date filters par |
+| `dashboard formulas are correct for stores: ...` | Dashboard page khud chala kar (Day / Month + Previous) AOV aur Discounts Given % ke formulas check |
+| `report values match across reports with all stores selected for: ...` | `reportAllStoresStores` ke har store ke andar, har report page par **sab stores** select kar ke wohi checks |
+| `dashboard formulas are correct with all stores selected for: ...` | Dashboard par "All Locations" select kar ke wohi formula checks |
 
 ```js
-it(`report values match across reports for stores: ${stores.join(", ")}`, () => {
-  stores.forEach((store, index) => {
+function forEachStore(storeNames, inStore) {
+  storeNames.forEach((store, index) => {
     if (index === 0) {
       cy.loginAndEnterStore(..., store);          // sirf ek dafa login
     } else {
       storeDirectoryPage.backToSuperAdmin();      // agla store bina login ke
       storeDirectoryPage.enterStore(store);
     }
+    inStore(store);
+  });
+}
+
+// Single store
+forEachStore(stores, (store) => {
+  reportsApi.captureContext().then((context) => reconcileAllRanges(title, store, context));
+});
+
+// All stores
+forEachStore(allStoresStores, (store) => {
+  reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
     reportsApi.captureContext().then((context) => {
-      getDateRanges().forEach((range) => {
-        reportsApi.reconcile(context, range, reportMappings).then((results) => {
-          /* har result: logRow() (green/red) + allRows mein add */
-        });
-      });
+      reconcileAllRanges(title, `${store} + all stores (${storeIds.length})`, { ...context, storeIds });
     });
   });
-  /* aakhir mein: koi MISMATCH ho to saari mismatches ek sath fail message mein */
 });
 ```
 
 - Saare stores ek hi `it()` mein hain taake login form sirf ek dafa bhara jaye. Pehla store cached session se aata hai, baqi "Back to Super Admin" se.
-- `beforeEach` har attempt ke shuru mein `allRows` khaali karta hai. Isse retry ke baad HTML report mein purani, fail hui attempt ki rows nahi aati.
+- **All stores ka tareeqa:** har report page (Dashboard, Sales Summary, Hourly, Discounts, Location) Chrome mein khulta hai, uske picker mein sab stores select hote hain (`reportStorePickers.js`), aur page ne jo store ids API ko bheje woh pakad liye jate hain. Saare pages ke ids barabar hone chahiye, aur un mein current store ki id honi chahiye. Phir 7 date filters ka data API se aata hai, pehle ki tarah. Stores ki list hardcode nahi: account mein naya store aaye (jaise 2026-10-28 ko "Test Limelight" aaya) to test khud use shamil kar leta hai.
+- **Dashboard formulas:** `DASHBOARD_VIEW_SEQUENCES` page ke apne buttons chalata hai: Day (today) → Previous (yesterday) → Previous (day before yesterday), aur Month (this month) → Previous (last month) → Previous (before last month). Har view par dashboard ki apni API call pakad kar uspe formula lagta hai. Dashboard par Year view nahi hai, is liye "this year" seedha API se check hota hai. All-stores wale test mein ek view tabhi ginta hai jab page ne waqai woh saare stores mange hon.
+- `beforeEach` har attempt ke shuru mein us test ki rows khaali karta hai. Isse retry ke baad HTML report mein purani, fail hui attempt ki rows nahi aati.
 - `after()` har run ke aakhir mein HTML report likhta hai, chahe test fail ho.
+
+### `reports/category-reconciliation.cy.js`
+Teen category reports aapas mein match karta hai: **Sales by Category**, **Category Sales (Detailed)** aur **Category Sold Report**. Ye **sirf storeb** par chalta hai (`STORE` constant), `reportStores` list use nahi karta.
+
+- Test 1: sirf storeb selected.
+- Test 2: storeb ke andar har category page par sab stores selected (wahi `storeIdsWithAllSelected` tareeqa).
+- Checks (`categoryMappings.js`): Gross Sales, Net Sales, Quantity Sold, Discounts. Discounts sirf Sales by Category aur Category Sold ke beech hai; Detailed ka discount jod aapke kehne par shamil nahi.
+- HTML report: `cypress/reports-output/category-reconciliation-<date>_<time>.html`.
 
 ### `all-tests.cy.js`
 ```js
@@ -725,68 +783,117 @@ require("./add-category.cy.js");
 require("./storefront-search.cy.js");
 require("./new-product-order.cy.js");
 require("./reports/report-reconciliation.cy.js");
+require("./reports/category-reconciliation.cy.js");
 ```
-Sab specs ko ek hi "file/tab" mein merge karta hai — wajah Masla 5 mein (Chrome apni last tab band hote hi khud exit ho jata hai). Report test sabse aakhir mein hai, is liye uski "Today" value mein isi run ke order tests ke naye orders bhi shamil hote hain.
+Sab specs ko ek hi "file/tab" mein merge karta hai — wajah Masla 5 mein (Chrome apni last tab band hote hi khud exit ho jata hai). Report tests sabse aakhir mein hain, is liye unki "Today" value mein isi run ke order tests ke naye orders bhi shamil hote hain.
 
 ---
 
 ## 5. Report Reconciliation Framework (`cypress/reports/`)
 
-**Maqsad:** alag alag reports mein jo numbers dikhte hain, woh aapas mein match karne chahiye. Pehli comparison: **Dashboard ka "Total Sales Revenue" = Reporting → Sales Summary ka "Net Sales"**, same store aur same date range par.
+**Maqsad:** alag alag reports mein jo numbers dikhte hain, woh aapas mein match karne chahiye, same store(s) aur same date range par. Jaise Dashboard ka "Total Sales Revenue" = Sales Summary ka "Net Sales" = Hourly Sales ka "Total Sales" = Location Report ka "Net Sales".
 
 ### UI nahi, API seedha
-Dono screens kholkar `$303.00` jaisa text parse karna slow aur flaky hota. Is liye test seedha un APIs ko call karta hai jo in screens ke peeche hain:
+Har screen kholkar `$303.00` jaisa text parse karna slow aur flaky hota. Is liye test seedha un APIs ko call karta hai jo in screens ke peeche hain. Sab `https://reports-api.quickvee.us/api/reports/` par hain:
 
-| Report | API | Value |
+| Report (page) | API endpoint | Format |
 |---|---|---|
-| Dashboard | `POST https://reports-api.quickvee.us/api/reports/dashboard` | `kpis.revenue.value` (number, jaise `303`) |
-| Sales Summary | `POST https://reports-api.quickvee.us/api/reports/sales_report_api_fact` | `result.gross_sales.net_sales` (string, jaise `"303.00"`) |
+| Dashboard | `dashboard` | multipart |
+| Overall Sales Summary | `sales_report_api_fact` | multipart |
+| Hourly Sales Report | `hourly_sales_fact` | multipart |
+| Discounts Report | `discount_report_fact` | multipart |
+| Location Report | `location-sales-fact` (+ store list: `location-sales/locations`) | JSON body + query string |
+| Sales by Category | `category_sales_report_api_fact` | multipart |
+| Category Sales (Detailed) | `detailed_category_sale_fact` | multipart |
+| Category Sold Report | `category_sales_report_api_fact` (apne paging/sort ke saath) | multipart |
 
 Recon mein ye cheezein confirm hui:
-- Dono APIs `multipart/form-data` maangti hain. Saath mein `Authorization: Bearer ...` header aur login-context fields (`token_id`, `session_id`, `login_type`, `login_user_type`, `login_merchant_id`, `login_user_email`) jate hain.
-- Store `merchant_id`/`outlet_ids` se, aur dates `start_date`/`end_date` (`YYYY-MM-DD`) se jaati hain.
+- Multipart APIs ke saath `Authorization: Bearer ...` header aur login-context fields (`token_id`, `session_id`, `login_type`, `login_user_type`, `login_merchant_id`, `login_user_email`) jate hain. JSON wali Location API inke ilawa `email` aur `token` (bearer, "Bearer " ke bina) bhi maangti hai.
+- Store `merchant_id` aur `outlet_ids` (comma-separated ids) se jaata hai; dates `start_date`/`end_date` (`YYYY-MM-DD`) se. Location API stores ki poori entries (`{id, name, city, state}`) `locations` list mein maangti hai.
 - Dashboard API UI ke Day/Week/Month ke bawajood **koi bhi custom range** accept karti hai. `kpis.*` hamesha `start_date`/`end_date` follow karta hai, aur response ka `headline` batata hai ke kaunsi range use hui.
-- Discount aur refund wale dinon par bhi dashboard revenue net sales ke barabar aaya. Yani dashboard "revenue" waqai net sales hai.
 
 ### Files
 
-**`reportDefinitions.js`**: har report ka endpoint aur extra params. Naya report = yahan ek entry.
+**`reportDefinitions.js`**: har report ki ek entry. Naya report = yahan ek entry.
 ```js
-dashboard: {
-  endpoint: "dashboard",
-  extraFields: ({ startDate, endDate, isCurrentPeriod }) => ({
-    date_range: `${startDate}_${endDate}`, activeType: "Day", date_type: "Day",
-    isViewingCurrentPeriod: String(isCurrentPeriod), top_limit: "10",
-  }),
-  reportedRange: (body) => ({ startDate: body.headline.start, endDate: body.headline.end }),
+discountReport: {
+  format: "multipart",
+  endpoint: "discount_report_fact",
+  fields: () => ({ discount_type: "1,2,3,4,5" }),     // extra form fields
+  ok: (body) => body.status === true,                  // API ne "kamyab" kaise bataya
+  reportedRange: (body) => ({ startDate: ..., endDate: ... }),  // API ne kaunsi range use ki
+  reportedLocations: (body) => body.merchant_ids,      // API ne kaunse stores use kiye
 },
-salesSummary: { endpoint: "sales_report_api_fact", extraFields: () => ({}) },
 ```
-`reportedRange` API ki apni batayi hui range padhta hai. Test check karta hai ke API ne wahi range use ki jo maangi gayi thi, taake galat date range par match chupke se pass na ho.
+- `merchant_id`, `outlet_ids` (`context.storeIds` se), dates aur login fields khud jud jate hain.
+- `reportedRange` / `reportedLocations`: test check karta hai ke API ne wahi range aur wahi stores use kiye jo maange thay, taake galat range ya galat stores par match chupke se pass na ho.
+- `needsLocations`: Location API ke liye har store ki `{id, name, city, state}` entry pehle ek dafa store list se le li jati hai.
+- `allPages`: jo API rows pages mein deti hai (Category Sold, 25 per page). Test page 1, 2, 3… mangta hai jab tak `has_more` false na ho, phir saari rows jodta hai. **Guard:** koi row do pages par na aaye, aur rows ki ginti API ke apne total ke barabar ho. 200 pages ke baad ruk kar error deta hai.
 
-**`reportMappings.js`**: kaunsi value kis value ke barabar honi chahiye. Nayi comparison = yahan ek entry.
+**`reportMappings.js`** (sales reports) aur **`categoryMappings.js`** (category reports): har entry ek "group" hai jiski saari values barabar honi chahiye.
 ```js
 {
-  left: { label: "Dashboard Total Sales Revenue", report: "dashboard", path: "kpis.revenue.value" },
-  right: { label: "Sales Summary Net Sales", report: "salesSummary", path: "result.gross_sales.net_sales" },
-}
+  label: "Net Sales",
+  format: "money",                  // "money" | "count"
+  values: [
+    { label: "Dashboard Total Sales Revenue", report: "dashboard", path: "kpis.revenue.value" },
+    { label: "Sales Summary Net Sales", report: "salesSummary", path: "result.gross_sales.net_sales" },
+    { label: "Hourly Sales Total Sales", report: "hourlySales", path: "result.totals.total_net_sales" },
+    { label: "Location Report Net Sales", report: "locationSales", path: "data.summary.totalNetSales" },
+  ],
+},
 ```
+- `path`: API ke JSON response mein value kahan hai.
+- `compute: (body) => number`: jab page value khud calculate karta hai aur API mein field nahi hota. Jaise Sales Summary ka "Avg Transaction Value" = net sales ÷ transactions, ya Category Sold ki quantity = saari rows ki Sold Qty ka jod.
+- `tolerance`: kitna farq (dollars mein) match maana jaye. Sirf "Discounts Given $" par ±$0.05 hai (Dashboard kabhi kabhi 1–5 cent kam dikhata hai). Aisi row "✔ MATCH (within ±$0.05)" dikhati hai taake farq nazar mein rahe.
+
+Abhi ye groups hain:
+
+| Spec | Group | Reports |
+|---|---|---|
+| report-reconciliation | Net Sales | Dashboard, Sales Summary, Hourly, Location |
+| | Transactions | Dashboard, Sales Summary, Hourly, Location |
+| | Average Order Value | Dashboard, Sales Summary (computed) |
+| | Gross Profit | Dashboard, Hourly, Location |
+| | Discounts Given $ (±$0.05) | Dashboard, Discounts Report, Location |
+| category-reconciliation | Category Gross Sales | Sales by Category, Detailed, Category Sold (Subtotal) |
+| | Category Net Sales | Sales by Category, Detailed, Category Sold (Subtotal w/ Discounts) |
+| | Category Quantity Sold | Sales by Category, Detailed, Category Sold (rows ka jod) |
+| | Category Discounts | Sales by Category, Category Sold |
+
+**`formulaChecks.js`**: ek report ki value uske apne doosre numbers se nikalne wale formula ke barabar honi chahiye. Abhi Dashboard par 2 hain:
+- **Average Order Value** = Total Sales Revenue ÷ Total Transactions (transactions 0 hon to $0.00)
+- **Discounts Given %** = Discounts ÷ (Discounts + Total Sales Revenue) × 100
 
 **`reconciliationConfig.js`**: stores aur date filters.
-- Stores: `cypress.env.json` ka `"reportStores": ["storeb", "monster01"]`. Na ho to `storeUnderTest`.
-- Date filters (har run par aaj ki date se khud calculate hote hain): Today, Yesterday, Last 7 days, This month (1 tareekh se aaj tak), Last month, Month before last, This year (1 January se aaj tak). January mein "Last month" sahi tareeqe se pichle saal ka December banta hai.
+- `reportStores` (single store tests): `cypress.env.json` ka `"reportStores": ["storeb", "monster01"]`. Na ho to `storeUnderTest`.
+- `reportAllStoresStores` (all stores tests): `"reportAllStoresStores": ["storeb"]`. Na ho to sirf storeb. Aage jis store ka data verify karwana ho, uska naam is list mein add karein.
+- Date filters (har run par aaj ki date se khud calculate hote hain): **Today, Yesterday, Day before yesterday, This month** (1 tareekh se aaj tak), **Last month, Before last month, This year** (1 January se aaj tak). January mein "Last month" sahi tareeqe se pichle saal ka December banta hai.
 - Custom range: `cypress.env.json` mein `"reportStartDate"` aur `"reportEndDate"` dein. Phir sirf wahi ek range chalegi.
 
 **`ReportsApi.js`**:
-- `captureContext()`: Dashboard page kholta hai aur app ki apni dashboard API call ko intercept karke bearer token, login fields aur `merchant_id` utha leta hai. Token app ke runtime state mein rehta hai, kahin stable jagah nahi jahan se seedha padha ja sake.
-- `fetch(reportName, context, range)`: report API ko same store aur same range ke saath call karta hai, `status: true` aur reported range check karta hai.
-- `reconcile(context, range, mappings)`: jitni reports mappings ko chahiye, har ek ko ek hi dafa fetch karta hai. Phir har mapping ki dono values ko 2 decimals tak barabar karke compare karta hai (`303` aur `"303.00"` barabar). Har mapping ki ek row return karta hai, assert nahi karta, taake saari mismatches ek sath report hon.
+- `captureContext()`: Dashboard page kholta hai aur app ki apni dashboard API call ko intercept karke bearer token, login fields aur `merchant_id` utha leta hai. `storeIds` shuru mein sirf current store hota hai; all-stores test isme saare stores daal deta hai.
+- `fetch(reportName, context, range)`: report API ko call karta hai, `ok`, reported range aur reported stores check karta hai, aur `allPages` ho to saare pages jodta hai.
+- `reconcile(context, range, mappings)`: har report ko ek hi dafa fetch karta hai, phir har group ki values cents mein compare karta hai (`303` aur `"303.00"` barabar). Har group ki ek row return karta hai, assert nahi karta, taake saari mismatches ek sath report hon. Mismatch par jo value baqi se alag ho uspe ⚠ lagta hai.
+- `checkFormulas` / `evaluateFormulas`: formula checks.
+- `reportCallAfter(endpoint, trigger, isWanted)`: page par koi click (`trigger`) karta hai aur us click se jo API call gayi uska request aur response deta hai. Har click ka apna alag intercept alias hota hai (Masla 20).
+- `storeIdsWithAllSelected(pages)`: har page par sab stores select karta hai, page ki bheji hui store ids pakadta hai, aur check karta hai ke saare pages ne same ids bheje.
 
 **`reconciliationReport.js`**:
 - `logRow()` command log mein har comparison ki ek row banata hai. MATCH green aur MISMATCH red hoti hai, amounts bold:
-  `✔ MATCH [storeb] Today (2026-10-23) → Dashboard Total Sales Revenue: $303.00 | Sales Summary Net Sales: $303.00`
+  `✔ MATCH [storeb] Today (2026-10-23) · Net Sales → Dashboard Total Sales Revenue: $303.00 | Sales Summary Net Sales: $303.00 | ...`
   Cypress har log entry ko `command-name-<name>` class deta hai. Hum `match`/`mismatch` naam se log karte hain aur runner ke document (`window.top`) mein CSS daal kar unhe rang dete hain.
-- `buildHtml()` har run ke aakhir mein `cypress/reports-output/reconciliation-<date>_<time>.html` banata hai: Store, Date filter, Date range, dono values, Result. Mismatch row red hoti hai. Ye folder gitignored hai.
+- `buildHtml()` har run ke aakhir mein `cypress/reports-output/reconciliation-<date>_<time>.html` (ya `category-reconciliation-...`) banata hai: Store, Date filter, Date range, Check, Values, Result. Mismatch row red hoti hai. Ye folder gitignored hai.
+
+### Is framework ne jo asal bugs pakde (developers ke liye)
+| Kahan | Kya mila |
+|---|---|
+| Test Limelight (storeb account), May 2026 | Dashboard Net Sales $8,894.96 vs Sales Summary $8,736.51 ($158.45 farq, transactions dono mein 39). All-stores test isi wajah se "this year" par fail hai. **Dev ko report ho chuka** (2026-10-28). Fix hone par test khud pass ho jayega |
+| Category Sold Report paging | Subtotal se sort karne par barabar subtotal wali categories pages ke beech jagah badalti hain: kuch do dafa aati hain, kuch kabhi nahi. User ko "Next" par bhi yahi dikhega (Masla 25) |
+| Dashboard Discounts Given $ | Bari ranges par Discount/Location reports se 1–5 cent kam (monster01: ek mahine mein $0.01, saal mein $0.05) |
+| monster01, 2026-10-22 | Transactions saari reports mein -1 |
+| Category Sales (Detailed), Price Override | Detailed ka Price Override baqi reports ke `total_price_override` se nahi milta (all stores, this month: -$12,595.70 vs $204.30) |
+| Category Sales (Detailed) API | Jis range mein sale na ho, ye `status: false, "No data found"` deti hai aur totals bhejti hi nahi; baqi APIs `status: true` aur 0 deti hain. Test ise $0 / 0 maanta hai |
 
 ### Ek security observation
 Recon ke dauran ek **galat token** (`Bearer invalid`) ke saath bhi Dashboard API ne status 200 diya. Sirf status dekha gaya tha, ye nahi ke response mein data bhi aaya ya nahi. Agar data aata hai to API token check nahi kar rahi; backend team se confirm karwana chahiye.
@@ -802,7 +909,7 @@ module.exports = defineConfig({
     viewportWidth: 1920,
     viewportHeight: 1080,
     video: true,
-    retries: { runMode: 2, openMode: 0 },
+    retries: { runMode: 2, openMode: 2 },
     setupNodeEvents(on, config) {
       on("task", { log(message) { console.log(message); return null; } });
       on("before:browser:launch", (browser, launchOptions) => {
@@ -820,8 +927,8 @@ module.exports = defineConfig({
 
 - `baseUrl` ab `quickvee.com` hai (pehle `admin-panel-test.quickvee.us` tha) — jaise-jaise tests storefront (customer-facing side) tak phaile, dono admin aur storefront isi ek domain par hain.
 - `viewportWidth/Height` fix kiya gaya (1920x1080) taake har run consistent layout par chale (MUI ke responsive breakpoints — Masla 10 dekhein — iss par depend karte hain).
-- `video: true` — `cypress run` passed test ka step-by-step log UI mein nahi rakhta (memory bachane ke liye), lekin video record hoti hai taake pass hone wale test ko bhi dobara dekh sakein. (`--no-exit` wala run jab tak khula ho, video file adhoori rehti hai aur khulti nahi.)
-- `retries: { runMode: 2 }` — `cypress run` mein fail hone wala test 2 dafa aur chalta hai, uske baad hi fail maana jata hai (Masla 16). Data banane wale tests (`add-product`, `new-product-order`) ka retry naya product/order dobara banata hai, is liye store mein thoda extra test data aa sakta hai.
+- `video: true` — `cypress run` passed test ka step-by-step log UI mein nahi rakhta (Masla 22), lekin video record hoti hai taake pass hone wale test ko bhi dobara dekh sakein. (`--no-exit` wala run jab tak khula ho, video file adhoori rehti hai aur khulti nahi.) Passed test ko step by step kholna ho to `npm run cypress:open` istemaal karein.
+- `retries: { runMode: 2, openMode: 2 }` — `cypress run` aur `cypress open` dono mein fail hone wala test 2 dafa aur chalta hai, uske baad hi fail maana jata hai (Masla 16). Data banane wale tests (`add-product`, `new-product-order`) ka retry naya product/order dobara banata hai, is liye store mein thoda extra test data aa sakta hai.
 - **Credentials ab `cypress.config.js` mein hardcoded nahi hain** — `cypress.env.json` (gitignored) mein hain:
   ```json
   {
@@ -831,11 +938,12 @@ module.exports = defineConfig({
     "storeUnderTest": "storeb",
     "customerEmail": "...",
     "customerPassword": "...",
-    "reportStores": ["storeb", "monster01"]
+    "reportStores": ["storeb", "monster01"],
+    "reportAllStoresStores": ["storeb"]
   }
   ```
   Cypress yeh file khud-ba-khud load kar ke `Cypress.env(...)` mein merge kar deta hai — config file mein kuch badalna nahi parta. `cypress.env.json.example` sirf shape dikhane ke liye version-controlled hai (placeholder values ke saath).
-  `customerEmail`/`customerPassword` baad mein add hue jab storefront-side checkout tests banay (customer apna alag login hai, admin se). `reportStores` report reconciliation ke stores ki list hai (section 5); store add ya remove karne ke liye sirf ye list badlein, code nahi.
+  `customerEmail`/`customerPassword` baad mein add hue jab storefront-side checkout tests banay (customer apna alag login hai, admin se). `reportStores` aur `reportAllStoresStores` report reconciliation ke stores ki lists hain (section 5); store add ya remove karne ke liye sirf ye lists badlein, code nahi. `reportAllStoresStores` na ho to sirf storeb chalta hai.
 
 ---
 
@@ -849,7 +957,8 @@ Yeh section sabse zyada seekhne wala hissa hai.
 
 ### Masla 2 — `cypress open` (interactive GUI) crash ho jata tha
 **Wajah:** is machine ka Chromium/Electron stack ek deeper compatibility bug rakhta hai (`bad_message.cc reason 114`).
-**Fix:** `cypress open` chorr diya; `cypress run --headed --browser chrome` istemaal karte hain — real Chrome se chalta hai, Cypress ka apna broken GUI shell use hi nahi hota.
+**Fix (pehle):** `cypress open` chorr diya tha; `cypress run --headed --browser chrome` istemaal karte thay.
+**Ab:** `npm run cypress:open` seedha Chrome mein (`--e2e --browser chrome`) khulta hai aur kaam karta hai. Ek dafa ye "Still waiting to connect to Chrome" par atka tha. Wajah Cypress ka kharab Chrome profile tha, jise `%APPDATA%\Cypress\cy\production\browsers\chrome-stable\interactive` se hata kar theek kiya (Masla 23).
 
 ### Masla 3 — Background task khud band ho jata tha
 **Fix:** Jab aap khud apne terminal se `npm run ...` chalate hain yeh masla nahi aata. Jab Claude khud background mein headed Chrome chalata hai (is conversation mein jaisa "run on chrome" requests par hota hai), to uska apna "ek waqt mein sirf ek background window, nayi shuru karne se pehle purani band karo" wala tareeqa follow hota hai — taake ek se zyada Chrome instance ek sath na chal rahein.
@@ -963,6 +1072,46 @@ Fix ke baad poora suite (8 tests) pehli hi koshish mein bina kisi retry ke pass 
 **Wajah:** `visitViaOnlineStoreLink()` ka `cy.contains("View Online Store")` default 4 second par tha. `all-tests` mein ye spec chhatay number par chalta hai, aur us waqt tak dashboard 4 second se zyada le raha tha.
 **Fix:** `{ timeout: 15000 }`, jaisa project ke baqi "page load hone do" wale steps mein hai.
 
+### Masla 19 — Dashboard "Day" view ki jagah pichla mahina khul raha tha
+Formula test "today" ke liye Day view ka intezar karta tha, lekin page Month view, pichle mahine par khulta tha.
+**Wajah:** dashboard aakhri view aur date `sessionStorage` mein yaad rakhta hai (`qv_dashboard_activeType`, `qv_dashboard_presentDate`). Pichle step ne Month + Previous dabaya tha, to agli dafa page wahin khula, chahe store badal bhi gaya ho.
+**Fix:** `DashboardPage.visitOnToday()` page ke scripts chalne se pehle ye do keys hata deta hai.
+
+### Masla 20 — Galat (purani) dashboard call pakdi ja rahi thi
+"No dashboard call for the day view" jaise errors aate thay, jabke page ne call ki thi.
+**Wajah:** saare steps ek hi intercept alias (`@dashboardView`) share karte thay. Ek click kabhi do calls karta hai; bachi hui purani calls queue mein reh jati thi aur agla step unhe pakad leta tha.
+**Fix:** `reportCallAfter()` har click ke liye **naya alias** banata hai, click se theek pehle. Phir bhi agar ek click do calls kare to `isWanted()` se sahi wali chuni jati hai (5 tak calls dekhi jati hain).
+
+### Masla 21 — "Week" button par click fail: element covered
+**Wajah:** dashboard data load karte waqt poore page par loading overlay (`.qv-dashboard-loading-backdrop`) daal deta hai. Overlay DOM mein chhupa hua bhi reh jata hai.
+**Fix:** `DashboardPage.waitUntilLoaded()` tab tak rukta hai jab tak koi overlay **dikh** na raha ho (display/visibility/opacity check), aur har click se pehle chalta hai.
+
+### Masla 22 — `cypress run` mein passed test click kar ke expand nahi hota
+**Wajah:** Cypress `cypress run` mein memory bachane ke liye command log sirf interactive mode mein rakhta hai. Ye Cypress ke andar fixed hai (`numTestsKeptInMemory` run mode mein 0 ho jata hai), setting se nahi badalta.
+**Fix:** passed test ko step by step dekhna ho to `npm run cypress:open` istemaal karein. `cypress run` ke liye video record hoti hai.
+
+### Masla 23 — `cypress open` "Still waiting to connect to Chrome" par atak gaya
+**Wajah:** Cypress ka apna interactive Chrome profile kharab ho gaya tha.
+**Fix:** `%APPDATA%\Cypress\cy\production\browsers\chrome-stable\interactive` folder ka naam badal kar hata diya (Cypress agli dafa naya bana leta hai). Pehle saari Chrome windows band karein.
+
+### Masla 24 — Location API kabhi 30 second mein jawab nahi deti thi
+**Wajah:** bare store aur lambi range (jaise "this year") par `location-sales-fact` 30 second (cy.request ka default) se zyada le leti thi; retry par pass ho jati thi.
+**Fix:** `ReportsApi.js` mein `REQUEST_TIMEOUT = 60000` (60 second).
+
+### Masla 25 — Category Sold ki quantity kabhi 2 kam aati thi
+All stores, this year: kabhi 44,421, kabhi 44,419. Rows ki ginti (233) har dafa theek thi, is liye "ginti" wala guard ise nahi pakad saka.
+**Wajah (app ka bug):** Category Sold API subtotal se sort kar ke 25-25 rows deti hai. 21 subtotal values kai categories mein barabar hain (jaise $0); har call par unki tarteeb badal jati hai, to ek category do pages par aa jati hai aur doosri kisi page par nahi. 6 mein se 6 dafa yahi hua.
+**Fix:** test category name se sort mangta hai (4 mein se 4 dafa har category theek ek dafa aayi), aur naya guard lagaya ke koi row do pages par na aaye.
+
+### Masla 26 — Detailed Category page par "All" click: "element is not visible"
+**Wajah:** page par Category filter ka bhi ek chhupa hua menu hai jisme "All" naam ka item hai. `cy.contains("All")` usko pakad leta tha.
+**Fix:** sirf khule hue menu (`.qv-multi-select__menu:visible`) ke andar "All" dhundha jata hai.
+
+### Masla 27 — Category banate waqt `category_list` call "fail" lagti thi, lekin kamyab thi
+Interactive mode mein `POST 200 .../category_list` laal background mein dikha.
+**Wajah:** laal background ka matlab "yahan test fail hua" hai, call ka fail hona nahi. Call 200 (kamyab) thi. Asal wajah us row ke neeche wale error box mein hoti hai.
+**Seekh:** interactive mode mein fail samajhne ke liye laal row ke neeche ka `AssertionError` / `CypressError` box padhein.
+
 ---
 
 ## 8. `package.json` Scripts
@@ -975,10 +1124,10 @@ Fix ke baad poora suite (8 tests) pehli hi koshish mein bina kisi retry ke pass 
 | `npm run test:add-category` | Sirf add-category test |
 | `npm run test:all` (ya `npm run cypress:headed`) | **`all-tests.cy.js` (sab specs) ek hi window mein**, aakhir mein khula rehta hai |
 | `npm run cypress:run` | Headless (bina browser dikhaye) — `all-tests.cy.js` |
-| `npm run cypress:open` | Interactive GUI (is machine par crash karta hai — Masla 2 dekhein, istemaal na karein) |
+| `npm run cypress:open` | Interactive mode, Chrome mein. Spec par click karke chalayein; passed test bhi step by step khulta hai |
 | `npm run watch` | File save karte hi khud dobara chala deta hai |
 
-**Note:** `storefront-search.cy.js`, `new-product-order.cy.js` aur `reports/report-reconciliation.cy.js` ke apne alag `npm run test:...` scripts abhi tak nahi banay. Ye `all-tests.cy.js` ke through chalte hain (`npm run test:all`), ya akele is tarah:
+**Note:** `storefront-search.cy.js`, `new-product-order.cy.js`, `reports/report-reconciliation.cy.js` aur `reports/category-reconciliation.cy.js` ke apne alag `npm run test:...` scripts abhi tak nahi banay. Ye `all-tests.cy.js` ke through chalte hain (`npm run test:all`), ya akele is tarah:
 ```
 node scripts/run-cypress.js run --headed --browser chrome --no-exit --spec "cypress/e2e/reports/report-reconciliation.cy.js"
 ```
@@ -1001,17 +1150,24 @@ npm run test:all
 5. Agar koi UI interaction "non-obvious" nikle (jaise async-loading dropdown, hidden duplicate DOM, ya server-side delay), Page class ke method ke upar hi ek chota comment likhein jo **wajah** bataye — jaisa is poori file mein har jagah kiya gaya hai. Agle kisi ko (ya khud aapko 2 mahine baad) wahi masla dobara discover nahi karna parega.
 
 ### Nayi report comparison kaise add karein
-Test ka code chhedne ki zaroorat nahi:
+Aksar test ka code chhedne ki zaroorat nahi:
 
-1. **Agar dono values pehle se maujood reports (dashboard, salesSummary) mein hain:** `cypress/reports/reportMappings.js` mein ek entry add karein:
+1. **Agar values pehle se maujood reports mein hain:** `reportMappings.js` (sales) ya `categoryMappings.js` (category) mein ek group add karein, ya maujooda group ki `values` mein ek line:
    ```js
    {
-     left: { label: "Dashboard Total Transactions", report: "dashboard", path: "kpis.transactions.value" },
-     right: { label: "Sales Summary Total Transactions", report: "salesSummary", path: "result.total_transactions" },
+     label: "Transactions",
+     format: "count",
+     values: [
+       { label: "Dashboard Total Transactions", report: "dashboard", path: "kpis.transactions.value" },
+       { label: "Sales Summary Total Transactions", report: "salesSummary", path: "result.total_transactions" },
+     ],
    }
    ```
-   Field ka `path` API ke JSON response se aata hai (browser DevTools → Network tab mein response dekh lein).
-2. **Agar naya report chahiye:** pehle DevTools mein us report ki API request dekhein: endpoint aur jo extra form fields jati hain. Phir `cypress/reports/reportDefinitions.js` mein ek entry banayein (`endpoint`, `extraFields`, aur agar API apni range batati hai to `reportedRange`). Uske baad step 1 ki tarah mapping add karein.
-3. **Naya store:** `cypress.env.json` ki `reportStores` list mein naam add karein (store directory mein jis naam se search hota hai).
-4. **Naya date filter:** `cypress/reports/reconciliationConfig.js` ke `getDateRanges()` mein ek `range(label, start, end)` add karein. Ek baar ki custom range ke liye `reportStartDate`/`reportEndDate` env kaafi hai.
-5. Pehle ek **galat mapping** jaan-boojh kar daal kar chalayein aur dekhein ke test MISMATCH dikha kar fail hota hai. Phir sahi mapping rakhein. Isse confirm hota hai ke comparison waqai kuch check kar rahi hai.
+   Field ka `path` API ke JSON response se aata hai (browser DevTools → Network tab mein response dekh lein). Agar page value khud calculate karta hai to `path` ki jagah `compute: (body) => ...` likhein.
+2. **Agar naya report chahiye:** pehle DevTools mein us report ki API request dekhein: endpoint, format (multipart ya JSON) aur jo extra fields jati hain. Phir `reportDefinitions.js` mein ek entry banayein (`format`, `endpoint`, `fields`, `ok`, aur agar API apni range/stores batati hai to `reportedRange`/`reportedLocations`). Rows pages mein aati hon to `allPages` bhi. Uske baad step 1 ki tarah mapping add karein.
+3. **Naya formula check (ek hi report ke andar):** `formulaChecks.js` mein `inputs`, `compute`, `display` aur `actual` ke saath ek entry.
+4. **Naya store:** single store ke liye `cypress.env.json` ki `reportStores`, all stores ke liye `reportAllStoresStores` list mein naam add karein (store directory mein jis naam se search hota hai).
+5. **Naye report page par "all stores":** page object banayein (`visit()` + select all). Agar picker `reportStorePickers.js` wale kisi picker jaisa hai to wahi function call karein. Phir spec ki `ALL_STORES_PAGES` list mein `{ name, endpoint, open, selectAll }` add karein.
+6. **Naya date filter:** `reconciliationConfig.js` ke `getDateRanges()` mein ek `range(label, start, end)` add karein. Ek baar ki custom range ke liye `reportStartDate`/`reportEndDate` env kaafi hai.
+7. Pehle ek **galat mapping** jaan-boojh kar daal kar chalayein aur dekhein ke test MISMATCH dikha kar fail hota hai. Phir sahi mapping rakhein. Isse confirm hota hai ke comparison waqai kuch check kar rahi hai.
+8. **Asal mismatch mile to** test ko fail rehne dein aur developers ko report karein. Tolerance sirf tab lagayein jab farq chhota ho aur aap jaan-boojh kar use qubool karna chahein.
