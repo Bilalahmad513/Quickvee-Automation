@@ -22,6 +22,36 @@ module.exports = defineConfig({
           console.log(message);
           return null;
         },
+        // Empties the local downloads folder before an export, so a check
+        // reads the file just downloaded - not an older one of the same
+        // name (`cypress open` keeps downloads between runs).
+        clearDownloads() {
+          const fs = require("fs");
+          const path = require("path");
+          if (fs.existsSync(config.downloadsFolder)) {
+            fs.readdirSync(config.downloadsFolder).forEach((file) =>
+              fs.rmSync(path.join(config.downloadsFolder, file), { recursive: true, force: true })
+            );
+          }
+          return null;
+        },
+        // The newest finished file in the downloads folder whose name starts
+        // with `prefix`, as { name, content } - or null while there is none
+        // yet (Chrome writes a .crdownload first). For exports whose exact
+        // saved name isn't known up front (react-csv's has no extension, and
+        // Chrome may or may not add ".csv").
+        readDownload(prefix) {
+          const fs = require("fs");
+          const path = require("path");
+          if (!fs.existsSync(config.downloadsFolder)) return null;
+          const newest = fs
+            .readdirSync(config.downloadsFolder)
+            .filter((file) => file.startsWith(prefix) && !file.endsWith(".crdownload"))
+            .map((file) => ({ file, mtime: fs.statSync(path.join(config.downloadsFolder, file)).mtimeMs }))
+            .sort((a, b) => b.mtime - a.mtime)[0];
+          if (!newest) return null;
+          return { name: newest.file, content: fs.readFileSync(path.join(config.downloadsFolder, newest.file), "utf8") };
+        },
       });
 
       // Chrome checks for updates in the background and, once a new build

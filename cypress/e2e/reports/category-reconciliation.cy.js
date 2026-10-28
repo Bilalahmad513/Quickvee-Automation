@@ -3,13 +3,15 @@ const detailedCategoryReportPage = require("../../pages/DetailedCategoryReportPa
 const categorySoldReportPage = require("../../pages/CategorySoldReportPage");
 const reportsApi = require("../../reports/ReportsApi");
 const categoryMappings = require("../../reports/categoryMappings");
+const { compareCategorySoldCsv, normalizeCsv } = require("../../reports/categorySoldCsvChecks");
 const { getDateRanges } = require("../../reports/reconciliationConfig");
 const { buildHtml, injectLogStyles, logRow, formatLine } = require("../../reports/reconciliationReport");
 
 // The category reports are checked for this one store only - not the
 // reportStores list the other reconciliation uses. "All stores" means every
 // store this store's account can pick in the reports' own store pickers.
-const STORE = "storeb";
+// Override with --env categoryStore=<store> (or in cypress.env.json).
+const STORE = Cypress.env("categoryStore") || "storeb";
 
 // Each category report page, how to select every store in its picker, and
 // the API call that selection makes - the store ids it sends are what the
@@ -63,21 +65,17 @@ describe("Category Report Reconciliation", () => {
     cy.task("log", `HTML report written to ${file}`);
   });
 
-  // Compares the category reports for every date filter, asked for
-  // context.storeIds; `storeLabel` names that selection in logs and the
-  // HTML report.
-  function reconcileAllRanges(testTitle, context, storeLabel) {
-    getDateRanges().forEach((range) => {
-      reportsApi.reconcile(context, range, categoryMappings).then((results) => {
-        results.forEach((result) => {
-          const row = { ...result, store: storeLabel, line: `[${storeLabel}] ${formatLine(result)}` };
-          logRow(row);
-          cy.task("log", row.line, { log: false });
-          rowsByTest[testTitle].push(row);
-        });
-      });
+  // Logs and keeps each result row under `storeLabel`.
+  function record(testTitle, storeLabel, results) {
+    results.forEach((result) => {
+      const row = { ...result, store: storeLabel, line: `[${storeLabel}] ${formatLine(result)}` };
+      logRow(row);
+      cy.task("log", row.line, { log: false });
+      rowsByTest[testTitle].push(row);
     });
+  }
 
+  function assertAllMatched(testTitle) {
     cy.then(() => {
       const rows = rowsByTest[testTitle];
       const mismatches = rows.filter((r) => !r.match);
@@ -86,9 +84,30 @@ describe("Category Report Reconciliation", () => {
     });
   }
 
-  it(`category report values match for store: ${STORE} (single store)`, function () {
+  // Compares the category reports for every date filter, asked for
+  // context.storeIds; `storeLabel` names that selection in logs and the
+  // HTML report.
+  function reconcileAllRanges(testTitle, context, storeLabel) {
+    getDateRanges().forEach((range) => {
+      reportsApi.reconcile(context, range, categoryMappings).then((results) => record(testTitle, storeLabel, results));
+    });
+    assertAllMatched(testTitle);
+  }
+
+  // Enters STORE and yields its reports context plus its name (from the
+  // reports' own store list), which logs and the HTML report show instead
+  // of the store id.
+  function enterStore() {
     cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), STORE);
-    reportsApi.captureContext().then((context) => reconcileAllRanges(this.test.title, context, STORE));
+    return reportsApi.captureContext().then((context) =>
+      reportsApi.ensureLocation(context).then((location) => ({ context, storeName: location.name || STORE }))
+    );
+  }
+
+  const allStoresLabel = (storeName, storeIds) => `${storeName} + all stores (${storeIds.length})`;
+
+  it(`category report values match for store: ${STORE} (single store)`, function () {
+    enterStore().then(({ context, storeName }) => reconcileAllRanges(this.test.title, context, storeName));
   });
 
   // Selects every store in each report page's own picker, takes the store
@@ -98,32 +117,76 @@ describe("Category Report Reconciliation", () => {
     const title = this.test.title;
     const storeIdsByPage = {};
 
-    cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), STORE);
+    enterStore().then(({ context, storeName }) => {
+      ALL_STORES_PAGES.forEach((page) => {
+        page.open();
+        // More than one store id means the page has switched from its
+        // single-store default to the full selection.
+        reportsApi
+          .reportCallAfter(page.endpoint, page.selectAll, (fields) => idsOf(fields.outlet_ids).length > 1, `"${page.name}" with all stores selected`)
+          .then(({ fields }) => {
+            storeIdsByPage[page.name] = idsOf(fields.outlet_ids);
+            if (fields.stores !== undefined) {
+              expect(idsOf(fields.stores), `${page.name} stores field`).to.deep.equal(storeIdsByPage[page.name]);
+            }
+            cy.task("log", `[${storeName}] ${page.name} all stores: ${storeIdsByPage[page.name].join(", ")}`, { log: false });
+          });
+      });
 
-    ALL_STORES_PAGES.forEach((page) => {
-      page.open();
-      // More than one store id means the page has switched from its
-      // single-store default to the full selection.
+      cy.then(() => {
+        const [first, ...others] = Object.values(storeIdsByPage);
+        const storeIds = [...first].sort();
+        others.forEach((ids, index) => {
+          expect([...ids].sort(), `${ALL_STORES_PAGES[index + 1].name} stores = ${ALL_STORES_PAGES[0].name} stores`).to.deep.equal(storeIds);
+        });
+        expect(storeIds, `all stores include ${STORE}'s own id`).to.include(context.merchantId);
+
+        reconcileAllRanges(title, { ...context, storeIds }, allStoresLabel(storeName, storeIds));
+      });
+    });
+  });
+
+  // Clicks the Category Sold Report's own "Export CSV" (the page opens on
+  // today with every store selected), checks the downloaded file is exactly
+  // what the export API answered, then - asking the export API with the
+  // page's same fields - compares the CSV with the report's data for every
+  // date filter, for this store alone and for all stores: every category,
+  // column by column, and the column sums with the report's totals.
+  it(`Category Sold Report Export CSV matches the report for store: ${STORE}`, function () {
+    const title = this.test.title;
+
+    enterStore().then(({ context, storeName }) => {
+      categorySoldReportPage.visit();
+      cy.task("clearDownloads");
+
       reportsApi
-        .reportCallAfter(page.endpoint, page.selectAll, (fields) => idsOf(fields.outlet_ids).length > 1, `"${page.name}" with all stores selected`)
-        .then(({ fields }) => {
-          storeIdsByPage[page.name] = idsOf(fields.outlet_ids);
-          if (fields.stores !== undefined) {
-            expect(idsOf(fields.stores), `${page.name} stores field`).to.deep.equal(storeIdsByPage[page.name]);
-          }
-          cy.task("log", `[${STORE}] ${page.name} all stores: ${storeIdsByPage[page.name].join(", ")}`, { log: false });
+        .reportCallAfter("category_sold_report_consolidated", () => categorySoldReportPage.exportCsv(), () => true, "Export CSV")
+        .then(({ fields, body }) => {
+          const storeIds = idsOf(fields.outlet_ids);
+          const file = `cypress/downloads/category_sold_report_${fields.start_date}_to_${fields.end_date}.csv`;
+          cy.readFile(file, { timeout: 30000 }).then((downloaded) => {
+            expect(normalizeCsv(downloaded), `downloaded ${file} = Export CSV API answer`).to.equal(normalizeCsv(body));
+          });
+
+          const pageFields = Cypress._.omit(fields, ["outlet_ids", "start_date", "end_date"]);
+          const selections = [
+            { label: storeName, storeIds: [context.merchantId] },
+            { label: allStoresLabel(storeName, storeIds), storeIds },
+          ];
+
+          selections.forEach((selection) => {
+            const selectionContext = { ...context, storeIds: selection.storeIds };
+            getDateRanges().forEach((range) => {
+              reportsApi.categorySoldExportCsv(selectionContext, range, pageFields).then((csv) => {
+                reportsApi.fetchAll(selectionContext, range, ["categorySoldAllRows"]).then((bodies) => {
+                  record(title, selection.label, compareCategorySoldCsv(csv, bodies.categorySoldAllRows, range));
+                });
+              });
+            });
+          });
         });
     });
 
-    reportsApi.captureContext().then((context) => {
-      const [first, ...others] = Object.values(storeIdsByPage);
-      const storeIds = [...first].sort();
-      others.forEach((ids, index) => {
-        expect([...ids].sort(), `${ALL_STORES_PAGES[index + 1].name} stores = ${ALL_STORES_PAGES[0].name} stores`).to.deep.equal(storeIds);
-      });
-      expect(storeIds, `all stores include ${STORE}'s own id`).to.include(context.merchantId);
-
-      reconcileAllRanges(title, { ...context, storeIds }, `${STORE} + all stores (${storeIds.length})`);
-    });
+    assertAllMatched(title);
   });
 });

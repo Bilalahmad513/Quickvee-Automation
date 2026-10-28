@@ -164,6 +164,23 @@ class ProductFormPage {
     return cy.contains("Available to sell").parent().find('input[placeholder="0"]').clear().type(quantity);
   }
 
+  // Single products' "SKU Codes" section: a list of "Custom Code" inputs,
+  // the first one #multi-custom-code-0-0. Each code is checked for
+  // uniqueness across the store (shared with UPCs) when the field loses
+  // focus, so this blurs it to start that check before saving.
+  fillSku(sku) {
+    return cy.get("#multi-custom-code-0-0", { timeout: 15000 }).scrollIntoView().clear().type(sku).blur();
+  }
+
+  // The "Add photos" button wraps a hidden, multi-file <input type="file">
+  // (jpg/png, 5 MB max). Each picked image shows as a thumbnail with its own
+  // "Remove photo" button - waiting for that confirms the form took it.
+  attachPhoto(fixturePath) {
+    cy.contains("button", "Add photos", { timeout: 15000 }).scrollIntoView();
+    cy.contains("button", "Add photos").find('input[type="file"]').selectFile(fixturePath, { force: true });
+    return cy.get('button[title="Remove photo"]', { timeout: 15000 }).should("have.length.at.least", 1);
+  }
+
   // The helper text above the field also reads "e.g. Size, Flavor", so a
   // plain cy.contains(attributeName) also matches that static text. Typing
   // into the dropdown's own "Search attributes..." box filters the list down

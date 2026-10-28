@@ -27,6 +27,11 @@ class CategorySoldReportPage {
     cy.get("body").type("{esc}");
     return this.storesTrigger().should("have.text", "All Stores");
   }
+
+  // Downloads the report as shown (selected stores and dates) as a CSV.
+  exportCsv() {
+    return cy.contains("button", /Export CSV/, { timeout: 30000 }).click();
+  }
 }
 
 module.exports = new CategorySoldReportPage();

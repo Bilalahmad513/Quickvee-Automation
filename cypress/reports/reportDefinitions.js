@@ -113,6 +113,21 @@ module.exports = {
     ok: (body) => body.status === true,
   },
 
+  // Same Category Sold data, with every category on one page - what the
+  // Export CSV check compares the CSV's rows against.
+  categorySoldAllRows: {
+    format: "multipart",
+    endpoint: "category_sales_report_api_fact",
+    fields: () => ({
+      search_by: "",
+      sort_field: "subtotal",
+      sort_order: "desc",
+      page: "1",
+      page_size: "10000",
+    }),
+    ok: (body) => body.status === true,
+  },
+
   // The Location Report page opens with every store selected; "Deselect All"
   // leaves only the current store, and the page then sends just that one
   // store's entry in `locations` (confirmed live). This sends the same

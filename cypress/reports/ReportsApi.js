@@ -167,6 +167,36 @@ class ReportsApi {
       });
   }
 
+  // The CSV the Category Sold Report's "Export CSV" button downloads, for
+  // this range and context.storeIds. `pageFields` are the form fields the
+  // page itself sent for an export (see category-reconciliation.cy.js), so
+  // this asks exactly what the button asks, only for another range/stores.
+  categorySoldExportCsv(context, range, pageFields) {
+    const { boundary, body } = buildMultipart({
+      ...pageFields,
+      merchant_id: context.merchantId,
+      outlet_ids: context.storeIds.join(","),
+      start_date: range.startDate,
+      end_date: range.endDate,
+      ...context.loginFields,
+    });
+    return cy
+      .request({
+        method: "POST",
+        timeout: REQUEST_TIMEOUT,
+        url: `${REPORTS_API}/category_sold_report_consolidated`,
+        headers: {
+          Authorization: context.authorization,
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        },
+        body,
+      })
+      .then((res) => {
+        expect(res.status, "Category Sold Export CSV status").to.equal(200);
+        return typeof res.body === "string" ? res.body : JSON.stringify(res.body);
+      });
+  }
+
   // Fetches each named report once for this range; yields { reportName: body }.
   fetchAll(context, range, reportNames) {
     const bodies = {};
