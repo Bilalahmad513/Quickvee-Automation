@@ -7,6 +7,10 @@ const REPORTS_API = "https://reports-api.quickvee.us/api/reports";
 // never answered within 30s, then passed on retry.
 const REQUEST_TIMEOUT = 60000;
 
+// Safety stop for paged reports, in case an API kept saying "has more"
+// forever.
+const MAX_PAGES = 200;
+
 // Gives every reportCallAfter() its own intercept alias.
 let reportCallCounter = 0;
 
@@ -109,13 +113,49 @@ class ReportsApi {
       });
   }
 
+  // Yields the report's response body. For a report with `allPages` (see
+  // reportDefinitions.js), every page is fetched in turn, the way the page
+  // itself pages through, and the rows of all pages are combined into one
+  // body.
   fetch(reportName, context, range) {
     const definition = REPORT_DEFINITIONS[reportName];
     const before = definition.needsLocation ? this.ensureLocation(context) : cy.wrap(null, { log: false });
 
     return before
+      .then(() => this.fetchPage(reportName, context, range, 1))
+      .then((body) => (definition.allPages ? this.collectRemainingPages(reportName, context, range, body, 1) : body));
+  }
+
+  // Fetches page after page while the API says there are more, adding each
+  // page's rows to `body`. Then checks no row was missed or counted twice:
+  // no row may appear on two pages, and the combined rows must be exactly as
+  // many as the API's own total.
+  collectRemainingPages(reportName, context, range, body, page) {
+    const { rows, rowKey, hasMore, totalRows } = REPORT_DEFINITIONS[reportName].allPages;
+
+    if (!hasMore(body)) {
+      const keys = Cypress._.get(body, rows).map(rowKey);
+      const repeated = Cypress._.uniq(keys.filter((key, index) => keys.indexOf(key) !== index));
+      expect(repeated, `${reportName} rows that came back on more than one page`).to.be.empty;
+      expect(keys.length, `${reportName} rows across all ${page} page(s)`).to.equal(totalRows(body));
+      return cy.wrap(body, { log: false });
+    }
+    if (page >= MAX_PAGES) {
+      throw new Error(`${reportName} still says there are more rows after ${MAX_PAGES} pages - stopping.`);
+    }
+
+    return this.fetchPage(reportName, context, range, page + 1).then((next) => {
+      const combined = Cypress._.set({ ...next }, rows, [...Cypress._.get(body, rows), ...Cypress._.get(next, rows)]);
+      return this.collectRemainingPages(reportName, context, range, combined, page + 1);
+    });
+  }
+
+  fetchPage(reportName, context, range, page) {
+    const definition = REPORT_DEFINITIONS[reportName];
+
+    return cy
       .then(() => {
-        const args = { context, range };
+        const args = { context, range, page };
         const url = `${REPORTS_API}/${definition.endpoint}`;
 
         if (definition.format === "json") {

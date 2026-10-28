@@ -5,7 +5,6 @@
 // The Detailed Category API sends no grand_totals at all for a range with no
 // sales ("No data found") - the page shows $0.00 for that.
 const detailedTotal = (field) => (body) => (body.status === true ? body.grand_totals[field] : 0);
-
 module.exports = [
   {
     label: "Category Gross Sales",
@@ -23,6 +22,32 @@ module.exports = [
       { label: "Sales by Category Net Sales", report: "salesByCategory", path: "total_subtotal_with_discounts" },
       { label: "Detailed Category Net Sales", report: "detailedCategory", compute: detailedTotal("product_total") },
       { label: "Category Sold Subtotal w/ Discounts", report: "categorySold", path: "total_subtotal_with_discounts" },
+    ],
+  },
+  {
+    label: "Category Quantity Sold",
+    format: "count",
+    values: [
+      { label: "Sales by Category Quantity Sold", report: "salesByCategory", path: "total_qty" },
+      { label: "Detailed Category Quantity", report: "detailedCategory", compute: detailedTotal("pro_qty") },
+      // The Category Sold Report shows no quantity total, only a Sold Qty
+      // per category row - so this adds up the rows of every page.
+      {
+        label: "Category Sold Sold Qty (sum of rows)",
+        report: "categorySold",
+        compute: (body) => Cypress._.sumBy(body.category_sale_data, (row) => Number(row.total_qty)),
+      },
+    ],
+  },
+  // Only these two reports show a discount total; the Detailed Category page
+  // is left out of this check on request.
+  {
+    label: "Category Discounts",
+    format: "money",
+    values: [
+      { label: "Sales by Category Discounts", report: "salesByCategory", path: "total_discounts" },
+      // Shown on the page as a negative (-$4.44); the API sends it positive.
+      { label: "Category Sold Discounts", report: "categorySold", path: "total_discounts" },
     ],
   },
 ];
