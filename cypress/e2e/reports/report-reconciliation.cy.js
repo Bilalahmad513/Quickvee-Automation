@@ -4,9 +4,16 @@ const salesSummaryPage = require("../../pages/SalesSummaryPage");
 const hourlySalesReportPage = require("../../pages/HourlySalesReportPage");
 const discountReportPage = require("../../pages/DiscountReportPage");
 const locationReportPage = require("../../pages/LocationReportPage");
+const salesByOrderTypePage = require("../../pages/SalesByOrderTypePage");
 const reportsApi = require("../../reports/ReportsApi");
 const reportMappings = require("../../reports/reportMappings");
 const formulaChecks = require("../../reports/formulaChecks");
+
+// Formula checks on the dashboard are run on the views the page itself
+// clicks through (checkDashboardFormulas); the rest are checked from the API
+// for every date filter, alongside the cross-report comparisons.
+const DASHBOARD_FORMULAS = formulaChecks.filter((check) => check.report === "dashboard");
+const REPORT_FORMULAS = formulaChecks.filter((check) => check.report !== "dashboard");
 const { getStores, getAllStoresStores, getDateRanges } = require("../../reports/reconciliationConfig");
 const { formatLine, buildHtml, injectLogStyles, logRow } = require("../../reports/reconciliationReport");
 
@@ -68,6 +75,12 @@ const ALL_STORES_PAGES = [
     selectAll: () => locationReportPage.selectAllLocations(),
     // A JSON body listing each selected store's {id, name, city, state}.
     sentIds: (fields) => (fields.locations || []).map((l) => l.id),
+  },
+  {
+    name: "Sales by Order Type",
+    endpoint: "order_type_new_fact",
+    open: () => salesByOrderTypePage.visit(),
+    selectAll: () => salesByOrderTypePage.selectAllStoresAndSearch(),
   },
 ];
 
@@ -137,10 +150,12 @@ describe("Report Reconciliation", () => {
     });
   }
 
-  // Compares the reports for every date filter, asked for context.storeIds.
+  // Compares the reports, and checks the non-dashboard formulas, for every
+  // date filter, asked for context.storeIds.
   function reconcileAllRanges(testTitle, storeLabel, context) {
     getDateRanges().forEach((range) => {
       reportsApi.reconcile(context, range, reportMappings).then((results) => record(testTitle, storeLabel, results));
+      reportsApi.checkFormulas(context, range, REPORT_FORMULAS).then((results) => record(testTitle, storeLabel, results));
     });
   }
 
@@ -173,7 +188,7 @@ describe("Report Reconciliation", () => {
         reportsApi.dashboardViewAfter(trigger, isWanted, `the "${step.label}" view`).then((body) => {
           const range = { label: step.label, startDate: body.headline.start, endDate: body.headline.end };
           lastRange = range;
-          record(testTitle, storeLabel, reportsApi.evaluateFormulas({ dashboard: body }, range, formulaChecks));
+          record(testTitle, storeLabel, reportsApi.evaluateFormulas({ dashboard: body }, range, DASHBOARD_FORMULAS));
         });
       });
     });
@@ -183,7 +198,7 @@ describe("Report Reconciliation", () => {
       getDateRanges()
         .filter((range) => DASHBOARD_API_ONLY_RANGES.includes(range.label))
         .forEach((range) => {
-          reportsApi.checkFormulas(storesContext, range, formulaChecks).then((results) => record(testTitle, storeLabel, results));
+          reportsApi.checkFormulas(storesContext, range, DASHBOARD_FORMULAS).then((results) => record(testTitle, storeLabel, results));
         });
     });
   }

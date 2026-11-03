@@ -32,6 +32,10 @@ module.exports = [
   {
     label: "Average Order Value",
     format: "money",
+    // The dashboard can round a half cent down (seen live for monster01:
+    // $232.31 vs the Sales Summary's $232.32). Accepted up to $0.01 on
+    // request; matching rows still say "within ±$0.01".
+    tolerance: 0.01,
     values: [
       { label: "Dashboard Average Order Value", report: "dashboard", path: "kpis.aov.value" },
       // The Sales Summary's "Avg Transaction Value" isn't in its API response
@@ -69,6 +73,21 @@ module.exports = [
       { label: "Dashboard Discounts Given $", report: "dashboard", path: "kpis.discount_amt.value" },
       { label: "Discount Report Net Discount Amount", report: "discountReport", path: "discount_data.total.total_discount_amt" },
       { label: "Location Report Net Discounts", report: "locationSales", path: "data.summary.totalNetDiscounts" },
+    ],
+  },
+  {
+    label: "Total Amount Collected",
+    format: "money",
+    values: [
+      { label: "Sales Summary Total Amount Collected", report: "salesSummary", path: "result.total_amount_collected" },
+      // The page's "Total Sales" is every order type's amount with tips
+      // (confirmed live: Store B this year $125,733.43 + $300 tips =
+      // $126,033.43, the Sales Summary's Total Amount Collected).
+      {
+        label: "Sales by Order Type Total Sales",
+        report: "salesByOrderType",
+        compute: ({ data }) => Cypress._.sumBy(data.current, (row) => Number(row.amount_with_tip)),
+      },
     ],
   },
 ];

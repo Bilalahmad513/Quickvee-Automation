@@ -38,7 +38,7 @@ function rowValues(row) {
 // e.g. "Today (2026-10-23) · Net Sales → Dashboard Total Sales Revenue: $303.00 | Sales Summary Net Sales: $303.00 | ... ✔ MATCH"
 // On a mismatch, the values that differ from the rest are marked with ⚠.
 // "✔ MATCH", "✔ MATCH (within ±$0.05)" for a match only within a mapping's
-// tolerance, or "✘ MISMATCH".
+// or formula check's tolerance, or "✘ MISMATCH".
 function resultText(row) {
   if (!row.match) return "✘ MISMATCH";
   return row.withinTolerance ? `✔ MATCH (within ±$${row.tolerance.toFixed(2)})` : "✔ MATCH";
