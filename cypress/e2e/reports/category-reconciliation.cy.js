@@ -13,6 +13,9 @@ const { buildHtml, injectLogStyles, logRow, formatLine } = require("../../report
 // Override with --env categoryStore=<store> (or in cypress.env.json).
 const STORE = Cypress.env("categoryStore") || "storeb";
 
+// "A,B,C" -> ["A", "B", "C"]; nothing -> [].
+const idsOf = (field) => (field || "").split(",").filter(Boolean);
+
 // Each category report page, how to select every store in its picker, and
 // the API call that selection makes - the store ids it sends are what the
 // all-stores test uses.
@@ -94,11 +97,13 @@ describe("Category Report Reconciliation", () => {
 
   // Enters STORE and yields its reports context plus its name (from the
   // reports' own store list), which logs and the HTML report show instead
-  // of the store id.
+  // of the store id. The name is looked up on a copy of the context, since
+  // ensureLocations() keeps its answer on the context it's given - which
+  // would otherwise carry this one store's list into the all-stores runs.
   function enterStore() {
     cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), STORE);
     return reportsApi.captureContext().then((context) =>
-      reportsApi.ensureLocation(context).then((location) => ({ context, storeName: location.name || STORE }))
+      reportsApi.ensureLocations({ ...context }).then(([location]) => ({ context, storeName: (location && location.name) || STORE }))
     );
   }
 
@@ -115,29 +120,8 @@ describe("Category Report Reconciliation", () => {
     const title = this.test.title;
 
     enterStore().then(({ context, storeName }) => {
-      ALL_STORES_PAGES.forEach((page) => {
-        page.open();
-        // More than one store id means the page has switched from its
-        // single-store default to the full selection.
-        reportsApi
-          .reportCallAfter(page.endpoint, page.selectAll, (fields) => idsOf(fields.outlet_ids).length > 1, `"${page.name}" with all stores selected`)
-          .then(({ fields }) => {
-            storeIdsByPage[page.name] = idsOf(fields.outlet_ids);
-            if (fields.stores !== undefined) {
-              expect(idsOf(fields.stores), `${page.name} stores field`).to.deep.equal(storeIdsByPage[page.name]);
-            }
-            cy.task("log", `[${storeName}] ${page.name} all stores: ${storeIdsByPage[page.name].join(", ")}`, { log: false });
-          });
-      });
-
-      cy.then(() => {
-        const [first, ...others] = Object.values(storeIdsByPage);
-        const storeIds = [...first].sort();
-        others.forEach((ids, index) => {
-          expect([...ids].sort(), `${ALL_STORES_PAGES[index + 1].name} stores = ${ALL_STORES_PAGES[0].name} stores`).to.deep.equal(storeIds);
-        });
+      reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
         expect(storeIds, `all stores include ${STORE}'s own id`).to.include(context.merchantId);
-
         reconcileAllRanges(title, { ...context, storeIds }, allStoresLabel(storeName, storeIds));
       });
     });
@@ -156,11 +140,34 @@ describe("Category Report Reconciliation", () => {
       categorySoldReportPage.visit();
       cy.task("clearDownloads");
 
-    reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
-      reportsApi.captureContext().then((context) => {
-        expect(storeIds, `all stores include ${STORE}'s own id`).to.include(context.merchantId);
-        reconcileAllRanges(title, { ...context, storeIds }, `${STORE} + all stores (${storeIds.length})`);
-      });
+      reportsApi
+        .reportCallAfter("category_sold_report_consolidated", () => categorySoldReportPage.exportCsv(), () => true, "Export CSV")
+        .then(({ fields, body }) => {
+          const storeIds = idsOf(fields.outlet_ids);
+          const file = `cypress/downloads/category_sold_report_${fields.start_date}_to_${fields.end_date}.csv`;
+          cy.readFile(file, { timeout: 30000 }).then((downloaded) => {
+            expect(normalizeCsv(downloaded), `downloaded ${file} = Export CSV API answer`).to.equal(normalizeCsv(body));
+          });
+
+          const pageFields = Cypress._.omit(fields, ["outlet_ids", "start_date", "end_date"]);
+          const selections = [
+            { label: storeName, storeIds: [context.merchantId] },
+            { label: allStoresLabel(storeName, storeIds), storeIds },
+          ];
+
+          selections.forEach((selection) => {
+            const selectionContext = { ...context, storeIds: selection.storeIds };
+            getDateRanges().forEach((range) => {
+              reportsApi.categorySoldExportCsv(selectionContext, range, pageFields).then((csv) => {
+                reportsApi.fetchAll(selectionContext, range, ["categorySoldAllRows"]).then((bodies) => {
+                  record(title, selection.label, compareCategorySoldCsv(csv, bodies.categorySoldAllRows, range));
+                });
+              });
+            });
+          });
+        });
     });
+
+    assertAllMatched(title);
   });
 });
