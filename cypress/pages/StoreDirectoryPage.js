@@ -40,9 +40,10 @@ class StoreDirectoryPage {
   // moment. Waiting for "any row" is not a safe settle signal, since the
   // stale unfiltered list always has rows too - so this waits specifically
   // for either the empty state or a row that actually contains the search
-  // term itself.
+  // term itself. 30s like the rest of this class: confirmed live (one
+  // attempt per test) that switching stores mid-test outlasted 10s here.
   waitForResultsToSettle(term) {
-    return cy.get("body", { timeout: 10000 }).should(($body) => {
+    return cy.get("body", { timeout: 30000 }).should(($body) => {
       const text = $body.text().toLowerCase();
       const settled = text.includes("no data found") || text.includes(term.toLowerCase());
       expect(settled).to.equal(true);

@@ -4,6 +4,14 @@
 // previous month instead of today.
 const REMEMBERED_VIEW_KEYS = ["qv_dashboard_activeType", "qv_dashboard_presentDate"];
 
+// For clicks on the page's controls. Right after a page load the loading
+// backdrop (see waitUntilLoaded) may not have appeared yet, so
+// waitUntilLoaded() can pass and the backdrop then cover the control -
+// confirmed live (one attempt per test): "Month" and the Locations button
+// both stayed covered past click()'s usual 4s. A longer click timeout makes
+// the click itself wait the backdrop out.
+const CLICK_PAST_BACKDROP = { timeout: 30000 };
+
 class DashboardPage {
   // Opens the dashboard on its default view (Day, today) by dropping the
   // remembered view before the page's own scripts read it.
@@ -34,13 +42,13 @@ class DashboardPage {
   // text so it can't hit labels that merely contain the word.
   selectView(view) {
     this.waitUntilLoaded();
-    return cy.contains(new RegExp(`^${view}$`), { timeout: 15000 }).click();
+    return cy.contains(new RegExp(`^${view}$`), { timeout: 15000 }).click(CLICK_PAST_BACKDROP);
   }
 
   // Steps the current view back one period (previous day/week/month).
   goToPreviousPeriod() {
     this.waitUntilLoaded();
-    return cy.contains(/^Previous$/, { timeout: 15000 }).click();
+    return cy.contains(/^Previous$/, { timeout: 15000 }).click(CLICK_PAST_BACKDROP);
   }
 
   // The "Locations" picker: ticks "All Locations (N)" (only if it isn't
@@ -49,11 +57,11 @@ class DashboardPage {
   // browser session, so later loads of the dashboard keep every store.
   selectAllLocations() {
     this.waitUntilLoaded();
-    cy.get(".qv-dashboard-location__trigger", { timeout: 15000 }).click();
+    cy.get(".qv-dashboard-location__trigger", { timeout: 15000 }).click(CLICK_PAST_BACKDROP);
     cy.get(".qv-dashboard-location-menu__all label", { timeout: 15000 }).then(($label) => {
       if (!$label.find("input")[0].checked) cy.wrap($label).click();
     });
-    cy.contains("button", /^Done$/).click();
+    cy.contains("button", /^Done$/).click(CLICK_PAST_BACKDROP);
     return cy.get(".qv-dashboard-location__trigger").should("contain.text", "All Locations");
   }
 }
