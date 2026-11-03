@@ -12,3 +12,4 @@ require("./storefront-search.cy.js");
 require("./new-product-order.cy.js");
 require("./reports/report-reconciliation.cy.js");
 require("./reports/category-reconciliation.cy.js");
+require("./reports/order-count-reconciliation.cy.js");

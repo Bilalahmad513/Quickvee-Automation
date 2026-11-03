@@ -1,3 +1,5 @@
+const { pickDateRange } = require("./datePicker");
+
 class OrdersPage {
   visit() {
     cy.visit("/merchants/order-new");
@@ -11,6 +13,42 @@ class OrdersPage {
   // `.order-tabs` (the tab row's own container) avoids that collision.
   selectOnlineOrders() {
     return cy.get(".order-tabs", { timeout: 10000 }).contains("Online").click();
+  }
+
+  // Start/End Date in the Filters panel - same fields on both tabs. The list
+  // reloads after each pick (no Search button). Waits for the list to have
+  // loaded first, so the page doesn't re-render (and shut the calendar)
+  // mid-pick. `range`: { startDate, endDate } as "YYYY-MM-DD".
+  selectDates(range) {
+    cy.contains(/Showing \d+ orders?|No (in-store|online) orders found/, { timeout: 30000 }).should("be.visible");
+    return pickDateRange("mui", range);
+  }
+
+  // The Online tab's "Order Status" filter: a box of chips that opens an MUI
+  // popover of checkbox menu items (All, Accepted, Packing, ..., Failed).
+  // Leaves exactly `statuses` ticked - "All" and every other status
+  // unticked. Each item is looked up fresh before its click, since ticking
+  // one re-renders the menu. The popover is found by its "Accepted" item:
+  // confirmed live that the Payment Type popover also sits in the DOM with
+  // its own checkbox items.
+  selectOrderStatuses(statuses) {
+    cy.contains("label", /^Order Status$/).parents(".space-y-2").first().find(".cursor-pointer").first().click();
+    const menu = () => cy.contains(".MuiPopover-root li[role='menuitem']", /^Accepted$/, { timeout: 10000 }).parents(".MuiPopover-root");
+
+    menu()
+      .find("li[role='menuitem']")
+      .then(($items) => {
+        const names = Cypress._.map($items, (item) => item.innerText.trim()).filter(Boolean);
+        names.forEach((name) => {
+          const wanted = statuses.includes(name);
+          menu()
+            .contains("li[role='menuitem']", new RegExp(`^${Cypress._.escapeRegExp(name)}$`))
+            .then(($item) => {
+              if ($item.find(".Mui-checked").length > 0 !== wanted) cy.wrap($item).click();
+            });
+        });
+      });
+    return cy.get("body").type("{esc}");
   }
 
   // .clear() first so searching a second order ID in the same test (after an
