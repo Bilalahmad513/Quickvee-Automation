@@ -79,18 +79,23 @@ class ReportsApi {
   // is currently inside) and copies the auth + store id from that request.
   // `storeIds` are the stores every report is asked for - just this one;
   // a test can swap in several (e.g. all of the account's stores).
-  captureContext() {
-    cy.intercept("POST", `${REPORTS_API}/dashboard`).as("reportsContext");
-    cy.visit("/merchants/dashboard");
-    return cy.wait("@reportsContext", { timeout: 30000 }).then(({ request }) => {
-      const fields = parseMultipart(request.body, request.headers["content-type"]);
-      return {
-        authorization: request.headers.authorization,
-        merchantId: fields.merchant_id,
-        storeIds: [fields.merchant_id],
-        loginFields: Cypress._.pick(fields, LOGIN_FIELDS),
-      };
-    });
+  //
+  // With `merchantId` (the store just entered), only a call for that store
+  // counts: confirmed live that right after switching stores the dashboard
+  // can first make a call for the store it was in before - taking that one
+  // checked every report for the previous store under the new store's name.
+  captureContext(merchantId) {
+    return this.reportCallAfter(
+      "dashboard",
+      () => cy.visit("/merchants/dashboard"),
+      (fields) => !merchantId || fields.merchant_id === merchantId,
+      merchantId ? `store ${merchantId}` : "the current store"
+    ).then(({ fields, authorization }) => ({
+      authorization,
+      merchantId: fields.merchant_id,
+      storeIds: [fields.merchant_id],
+      loginFields: Cypress._.pick(fields, LOGIN_FIELDS),
+    }));
   }
 
   // The {id, name, city, state} entry of each of context.storeIds, from the

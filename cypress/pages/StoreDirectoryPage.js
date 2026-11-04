@@ -67,7 +67,12 @@ class StoreDirectoryPage {
   // same flow store-view.cy.js tests explicitly step by step - this version
   // is for specs that just need to land inside a given store as a
   // precondition, not for testing the search/fallback behavior itself.
+  //
+  // Yields the store's merchant id (e.g. JAI16179CA), read from the row it
+  // opened - so a caller can make sure later API calls are for this store
+  // and not the one it was in before (see ReportsApi.captureContext).
   enterStore(storeName) {
+    let merchantId;
     this.goToInactiveStores();
     this.search(storeName);
     this.waitForResultsToSettle(storeName);
@@ -81,8 +86,20 @@ class StoreDirectoryPage {
     });
 
     cy.contains(storeName, { matchCase: false, timeout: 15000 }).should("be.visible");
+    // The row lists the store's merchant id - three letters, digits, two
+    // letters (confirmed live: "... jennysmokeshop JAI16179CA"). innerText,
+    // not .text(): .text() runs the cells together ("storebBIL2215335CA"),
+    // so the id isn't a separate word.
+    cy.get('span.qv-users-directory-icon[title="View"]', { timeout: 15000 })
+      .first()
+      .closest("tr, [role='row']")
+      .then(($row) => {
+        merchantId = ($row[0].innerText.match(/\b[A-Z]{3}\d{4,}[A-Z]{2}\b/) || [])[0];
+        expect(merchantId, `merchant id in the "${storeName}" row`).to.be.a("string");
+      });
     this.clickViewIconForFirstResult();
-    return cy.contains("Back to Super Admin", { timeout: 15000 }).should("be.visible");
+    cy.contains("Back to Super Admin", { timeout: 15000 }).should("be.visible");
+    return cy.then(() => merchantId);
   }
 
   // Leaves the current store's admin view for the super admin view, from

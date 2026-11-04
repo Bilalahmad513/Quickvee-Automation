@@ -116,19 +116,22 @@ describe("Report Reconciliation", () => {
     cy.task("log", `HTML report written to ${file}`);
   });
 
-  // Enters each store in turn and runs `inStore(store)` inside it. The login
-  // form is never filled in again here: the first store comes from the
-  // cached login session, every store after that is reached via "Back to
-  // Super Admin" -> store directory, same as a person switching stores.
+  // Enters each store in turn and runs `inStore(store, merchantId)` inside
+  // it. The login form is never filled in again here: the first store comes
+  // from the cached login session, every store after that is reached via
+  // "Back to Super Admin" -> store directory, same as a person switching
+  // stores. For a switched-to store, `merchantId` is its id from the
+  // directory, so its API calls can be told apart from the previous store's
+  // (see ReportsApi.captureContext); the first store has no previous one.
   function forEachStore(storeNames, inStore) {
     storeNames.forEach((store, index) => {
       if (index === 0) {
         cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), store);
+        inStore(store, undefined);
       } else {
         storeDirectoryPage.backToSuperAdmin();
-        storeDirectoryPage.enterStore(store);
+        storeDirectoryPage.enterStore(store).then((merchantId) => inStore(store, merchantId));
       }
-      inStore(store);
     });
   }
 
@@ -164,8 +167,9 @@ describe("Report Reconciliation", () => {
   // formula on the exact data the page loaded for that view - the date range
   // comes from the dashboard's own response, i.e. whatever the page shows.
   // With `storeIds`, a view only counts if the page asked for exactly those
-  // stores. "This year" has no view on the page, so it's checked via the API.
-  function checkDashboardFormulas(testTitle, storeLabel, storeIds) {
+  // stores; with `merchantId`, only if it's for that store (see forEachStore).
+  // "This year" has no view on the page, so it's checked via the API.
+  function checkDashboardFormulas(testTitle, storeLabel, storeIds, merchantId) {
     DASHBOARD_VIEW_SEQUENCES.forEach((sequence) => {
       let lastRange = null;
 
@@ -183,6 +187,7 @@ describe("Report Reconciliation", () => {
         const isWanted = (fields, body) =>
           fields.activeType === step.activeType &&
           (!step.previous || body.headline.start !== lastRange.startDate) &&
+          (!merchantId || fields.merchant_id === merchantId) &&
           (!storeIds || Cypress._.isEqual(fields.outlet_ids.split(",").sort(), storeIds));
 
         reportsApi.dashboardViewAfter(trigger, isWanted, `the "${step.label}" view`).then((body) => {
@@ -193,7 +198,7 @@ describe("Report Reconciliation", () => {
       });
     });
 
-    reportsApi.captureContext().then((context) => {
+    reportsApi.captureContext(merchantId).then((context) => {
       const storesContext = storeIds ? { ...context, storeIds } : context;
       getDateRanges()
         .filter((range) => DASHBOARD_API_ONLY_RANGES.includes(range.label))
@@ -206,8 +211,8 @@ describe("Report Reconciliation", () => {
   it(`report values match across reports for stores: ${stores.join(", ")}`, function () {
     const title = this.test.title;
 
-    forEachStore(stores, (store) => {
-      reportsApi.captureContext().then((context) => reconcileAllRanges(title, store, context));
+    forEachStore(stores, (store, merchantId) => {
+      reportsApi.captureContext(merchantId).then((context) => reconcileAllRanges(title, store, context));
     });
 
     assertAllMatched(title);
@@ -216,7 +221,7 @@ describe("Report Reconciliation", () => {
   it(`dashboard formulas are correct for stores: ${stores.join(", ")}`, function () {
     const title = this.test.title;
 
-    forEachStore(stores, (store) => checkDashboardFormulas(title, store));
+    forEachStore(stores, (store, merchantId) => checkDashboardFormulas(title, store, undefined, merchantId));
 
     assertAllMatched(title);
   });
@@ -227,9 +232,9 @@ describe("Report Reconciliation", () => {
   it(`report values match across reports with all stores selected for: ${allStoresStores.join(", ")}`, function () {
     const title = this.test.title;
 
-    forEachStore(allStoresStores, (store) => {
+    forEachStore(allStoresStores, (store, merchantId) => {
       reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
-        reportsApi.captureContext().then((context) => {
+        reportsApi.captureContext(merchantId).then((context) => {
           expect(storeIds, `all stores include ${store}'s own id`).to.include(context.merchantId);
           reconcileAllRanges(title, allStoresLabel(store, storeIds), { ...context, storeIds });
         });
@@ -245,9 +250,9 @@ describe("Report Reconciliation", () => {
   it(`dashboard formulas are correct with all stores selected for: ${allStoresStores.join(", ")}`, function () {
     const title = this.test.title;
 
-    forEachStore(allStoresStores, (store) => {
+    forEachStore(allStoresStores, (store, merchantId) => {
       reportsApi.storeIdsWithAllSelected([DASHBOARD_ALL_STORES]).then((storeIds) => {
-        checkDashboardFormulas(title, allStoresLabel(store, storeIds), storeIds);
+        checkDashboardFormulas(title, allStoresLabel(store, storeIds), storeIds, merchantId);
       });
     });
 
