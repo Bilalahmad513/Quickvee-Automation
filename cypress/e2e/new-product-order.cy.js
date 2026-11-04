@@ -12,16 +12,11 @@ describe("New Product Order", () => {
   // Both products are created under one admin login, then both are added to
   // the SAME cart and checked out together as a single order (one customer
   // login, one checkout) instead of two separate orders - each
-  // cy.loginAndEnterStore() call and each full checkout cycle is where this
+  // store entry (cy.enterDataStore()) and each full checkout cycle is where this
   // environment's chronic low-memory flakiness actually hits, so this keeps
   // both down to one.
   it("creates a simple and a variant product, and places one order containing both", () => {
-    cy.loginAndEnterStore(
-      Cypress.env("storeName"),
-      Cypress.env("username"),
-      Cypress.env("password"),
-      Cypress.env("storeUnderTest")
-    );
+    cy.enterDataStore();
 
     // --- Create the simple product ---
     productsPage.visit();
@@ -116,12 +111,7 @@ describe("New Product Order", () => {
           checkoutPage.getOrderId().then((orderId) => {
             // Same cy.session() restore pattern as storefront-search.cy.js -
             // instant cookie swap back to the admin session, no login form.
-            cy.loginAndEnterStore(
-              Cypress.env("storeName"),
-              Cypress.env("username"),
-              Cypress.env("password"),
-              Cypress.env("storeUnderTest")
-            );
+            cy.enterDataStore();
 
             ordersPage.visit();
             ordersPage.selectOnlineOrders();

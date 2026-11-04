@@ -3,13 +3,16 @@ const detailedCategoryReportPage = require("../../pages/DetailedCategoryReportPa
 const categorySoldReportPage = require("../../pages/CategorySoldReportPage");
 const reportsApi = require("../../reports/ReportsApi");
 const categoryMappings = require("../../reports/categoryMappings");
-const { getDateRanges } = require("../../reports/reconciliationConfig");
+const { getStores, getAllStoresStores, getDateRanges } = require("../../reports/reconciliationConfig");
 const { buildHtml, injectLogStyles, logRow, formatLine } = require("../../reports/reconciliationReport");
 
-// The category reports are checked for this one store only - not the
-// reportStores list the other reconciliation uses. "All stores" means every
-// store this store's account can pick in the reports' own store pickers.
-const STORE = "storeb";
+// Stores the category reports are checked for, same lists as the other
+// reconciliation specs (cypress.env.json, see reconciliationConfig.js):
+// reportStores one at a time, reportAllStoresStores with every store on the
+// account selected in the reports' own store pickers. Report checks only
+// read data, so any store can be listed.
+const STORES = getStores();
+const ALL_STORES_STORES = getAllStoresStores();
 
 // Each category report page, how to select every store in its picker, and
 // the API call that selection makes - the store ids it sends are what the
@@ -84,23 +87,27 @@ describe("Category Report Reconciliation", () => {
     });
   }
 
-  it(`category report values match for store: ${STORE} (single store)`, function () {
-    cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), STORE);
-    reportsApi.captureContext().then((context) => reconcileAllRanges(this.test.title, context, STORE));
+  STORES.forEach((store) => {
+    it(`category report values match for store: ${store} (single store)`, function () {
+      cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), store);
+      reportsApi.captureContext().then((context) => reconcileAllRanges(this.test.title, context, store));
+    });
   });
 
   // Selects every store in each report page's own picker, takes the store
   // ids each page then sent, checks all three pages agree on them, and
   // compares the reports for those stores together.
-  it(`category report values match for store: ${STORE} with all stores selected`, function () {
-    const title = this.test.title;
+  ALL_STORES_STORES.forEach((store) => {
+    it(`category report values match for store: ${store} with all stores selected`, function () {
+      const title = this.test.title;
 
-    cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), STORE);
+      cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), store);
 
-    reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
-      reportsApi.captureContext().then((context) => {
-        expect(storeIds, `all stores include ${STORE}'s own id`).to.include(context.merchantId);
-        reconcileAllRanges(title, { ...context, storeIds }, `${STORE} + all stores (${storeIds.length})`);
+      reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
+        reportsApi.captureContext().then((context) => {
+          expect(storeIds, `all stores include ${store}'s own id`).to.include(context.merchantId);
+          reconcileAllRanges(title, { ...context, storeIds }, `${store} + all stores (${storeIds.length})`);
+        });
       });
     });
   });
