@@ -1,4 +1,7 @@
+const fs = require("fs");
+const path = require("path");
 const { defineConfig } = require("cypress");
+const { findExportEmail } = require("./cypress/support/exportEmail");
 
 module.exports = defineConfig({
   e2e: {
@@ -21,6 +24,24 @@ module.exports = defineConfig({
         log(message) {
           console.log(message);
           return null;
+        },
+        // Removes a file from the downloads folder (if it's there), so an
+        // export test reads the file its own click downloaded - not one left
+        // from an earlier run (`cypress open` keeps old downloads).
+        deleteDownload(fileName) {
+          fs.rmSync(path.join(config.downloadsFolder, fileName), { force: true });
+          return null;
+        },
+        // Long-range exports are emailed instead of downloaded ("Your export
+        // has been queued"). This waits for that email in the Gmail inbox the
+        // exports go to (exportEmailUser / exportEmailAppPassword in
+        // cypress.env.json) and yields its "Download Report" link and Rows.
+        findExportEmail(options) {
+          return findExportEmail({
+            ...options,
+            user: config.env.exportEmailUser,
+            appPassword: config.env.exportEmailAppPassword,
+          });
         },
       });
 
