@@ -27,7 +27,8 @@ cypress-automation/
     │   ├── reports/
     │   │   ├── report-reconciliation.cy.js    → Dashboard + 5 sales reports aapas mein match
     │   │   ├── category-reconciliation.cy.js  → 3 category reports aapas mein match
-    │   │   └── order-count-reconciliation.cy.js → Sales by Order Type orders = Orders page In-Store + Online
+    │   │   ├── order-count-reconciliation.cy.js → Sales by Order Type orders = Orders page In-Store + Online
+    │   │   └── item-sold-export.cy.js   → Item Sold Report ki Export CSV file = page ka Total row (download ya email)
     │   ├── data-tests.cy.js      → Data banane wale tests (+ login/store-view) ek sath
     │   ├── report-tests.cy.js    → Sirf report checks ek sath (data nahi banate)
     │   └── all-tests.cy.js       → Dono
@@ -58,13 +59,16 @@ cypress-automation/
     │   ├── SalesByCategoryPage.js      │
     │   ├── DetailedCategoryReportPage.js│
     │   ├── CategorySoldReportPage.js   │
-    │   ├── SalesByOrderTypePage.js     ┘ (+ dates chunna)
+    │   ├── SalesByOrderTypePage.js     │ (+ dates chunna)
+    │   ├── ItemSoldReportPage.js       ┘ (+ dates, Export CSV, Total row)
     │   ├── reportStorePickers.js       → Store pickers jo kai report pages par same hain
     │   └── datePicker.js               → Start/End Date calendars (report pages + Orders page)
     └── support/
         ├── e2e.js
         ├── commands.js            → `cy.loginAndEnterStore()` (session caching) + `cy.enterDataStore()` (data sirf allowed stores mein)
-        └── testData.js            → Random realistic product names + random price pairs
+        ├── testData.js            → Random realistic product names + random price pairs
+        ├── csv.js                 → CSV padhna (parseCsv) aur "$1,189.50" jaise text ko number banana (toNumber)
+        └── exportEmail.js         → Gmail (IMAP) se Quickvee ki export email dhoondhna - cypress.config.js ka task
 ```
 
 ---
@@ -843,6 +847,18 @@ Log line poora hisaab dikhati hai, jaise:
 
 HTML report: `cypress/reports-output/order-count-reconciliation-<date>_<time>.html`.
 
+### `reports/item-sold-export.cy.js`
+**Item Sold Report** ka **Export CSV** dabata hai aur file ko page se milata hai. Sirf data padhta hai.
+
+- **Stores:** `reportStores` (ek waqt mein ek; "Deselect All" se sirf current store bachta hai) aur `reportAllStoresStores` ("Select All"). Jin stores mein yeh report chalu nahi (page kehta hai *"This report isn't available for your account yet"*) woh `STORES_WITHOUT_ITEM_SOLD_REPORT` mein hain (abhi `jenny smoke shop`); koi aur aisa store mile to test skip hota hai.
+- **Dates:** `RANGE_LABELS` (today, yesterday, this month, last month). Page ka apna range calendar hai: Today / Yesterday / Month-to-date / This year presets foran lag jate hain; baqi range calendar mein start + end click, phir **Retrieve**.
+- **Checks (har column: Sold, Subtotal, Discounts, Subtotal w/ Discounts, Total, Cost, Profit, Margin):** CSV ki **TOTAL row** = CSV ki **item rows ka jod** = page ki **Total row**, aur items ki ginti (CSV `9 items` = rows = page "All 9 items"). Discounts bina sign ke (page `-$4,307.06`, file `4307.06`). Margin ka jod nahi hota.
+- **Koi sale na ho:** page "No items sold in this window" dikhata hai aur CSV mein sirf heading hoti hai; test 0 = 0 check karta hai.
+- **File kahan se:** export ki API (`items_sold_report_consolidated`) chhoti range par CSV khud bhejti hai (browser `cypress/downloads/item_sold_report_<start>_to_<end>.csv` mein save karta hai; purani file pehle `deleteDownload` task se hatti hai). Lambi range par `{ queued: true, "Your export has been queued..." }` aata hai aur file **email** par jati hai.
+- **Email wale exports (`EMAILED_RANGES`, abhi storeb aur storeb + All Stores, This year):** `findExportEmail` task (`cypress/support/exportEmail.js`) Gmail ke **All Mail** ko IMAP se har 15 second padhta hai (zyada se zyada 10 min) aur woh email leta hai jo click ke **baad** aayi aur jis mein bilkul wahi stores ("For Merchant: X" ya "For Merchants (N): X, Y, Z"), "Item Sold Report" aur dates hon. Phir email ka **Download Report** link (`https://downloads.quickvee.us/exports/<merchant>/items_sold_<waqt>.csv`) se file leta hai, aur email ka "Rows" bhi milata hai. Kuch delete ya mark nahi karta. Har run Gmail mein ek nayi export email banata hai.
+- Gmail ke liye `cypress.env.json` mein `exportEmailUser` aur `exportEmailAppPassword` (Google ka 16 harfon ka **App Password**; asli password IMAP par nahi chalta).
+- HTML report: `cypress/reports-output/item-sold-export-<date>_<time>.html`.
+
 ### `all-tests.cy.js`
 ```js
 require("./data-tests.cy.js");     // login, store-view, add-product, add-category, storefront-search, new-product-order
@@ -1021,8 +1037,10 @@ module.exports = defineConfig({
     "dataStores": ["storeb"],
     "customerEmail": "...",
     "customerPassword": "...",
-    "reportStores": ["storeb", "monster01"],
-    "reportAllStoresStores": ["storeb"]
+    "reportStores": ["storeb", "monster01", "jenny smoke shop"],
+    "reportAllStoresStores": ["storeb"],
+    "exportEmailUser": "...@gmail.com",
+    "exportEmailAppPassword": "..."
   }
   ```
   Cypress yeh file khud-ba-khud load kar ke `Cypress.env(...)` mein merge kar deta hai — config file mein kuch badalna nahi parta. `cypress.env.json.example` sirf shape dikhane ke liye version-controlled hai (placeholder values ke saath).
