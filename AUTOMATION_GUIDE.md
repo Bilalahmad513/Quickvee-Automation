@@ -28,7 +28,9 @@ cypress-automation/
     │   │   ├── report-reconciliation.cy.js    → Dashboard + 5 sales reports aapas mein match
     │   │   ├── category-reconciliation.cy.js  → 3 category reports aapas mein match
     │   │   └── order-count-reconciliation.cy.js → Sales by Order Type orders = Orders page In-Store + Online
-    │   └── all-tests.cy.js
+    │   ├── data-tests.cy.js      → Data banane wale tests (+ login/store-view) ek sath
+    │   ├── report-tests.cy.js    → Sirf report checks ek sath (data nahi banate)
+    │   └── all-tests.cy.js       → Dono
     ├── reports/                  → Report reconciliation framework (section 5)
     │   ├── reportDefinitions.js  → Har report API ka endpoint, params, guards
     │   ├── reportMappings.js     → Sales reports: kaunsi values barabar honi chahiye
@@ -61,7 +63,7 @@ cypress-automation/
     │   └── datePicker.js               → Start/End Date calendars (report pages + Orders page)
     └── support/
         ├── e2e.js
-        ├── commands.js            → `cy.loginAndEnterStore()` custom command (session caching)
+        ├── commands.js            → `cy.loginAndEnterStore()` (session caching) + `cy.enterDataStore()` (data sirf allowed stores mein)
         └── testData.js            → Random realistic product names + random price pairs
 ```
 
@@ -617,6 +619,22 @@ Yeh custom command har naye spec mein poora "login + store dhoondo + open karo" 
 
 **Zaroori gotcha:** session **restore** hone par browser `about:blank` par reh jata hai — jahan `enterStore()` last baar navigate hua tha wahan nahi. Isi liye har spec jo yeh command istemaal karta hai, uske foran baad khud se `cy.visit("/merchants/dashboard")` (ya jahan bhi zaroorat ho) karta hai.
 
+#### `cy.enterDataStore()` — data sirf allowed stores mein
+```js
+Cypress.Commands.add("enterDataStore", () => {
+  const store = Cypress.env("storeUnderTest");
+  const allowed = dataStores();               // cypress.env.json ka "dataStores"
+  if (!allowed.includes(store)) {
+    throw new Error(`Store "${store}" is not allowed for creating data (products, categories, orders). ...`);
+  }
+  return cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), store);
+});
+```
+- **Data banane wale saare tests** (add-product, add-category, storefront-search, new-product-order) store mein **sirf isi command** se jate hain, `loginAndEnterStore` se seedha nahi.
+- Agar `storeUnderTest` `dataStores` list mein nahi, to test **kuch bhi kholne ya save karne se pehle** fail ho jata hai (live check: monster01 par add-category 0.4 second mein ruk gaya, login tak nahi hua).
+- `dataStores` list na ho ya khaali ho to kisi store mein data nahi banta. Ijazat khud deni padti hai.
+- Report tests (`reportStores`) kuch nahi banate: na product, na category, na order. Is liye report stores ko data stores se alag rakha gaya hai; ek store dono liston mein ho sakta hai (jaise storeb).
+
 ### `cypress/support/testData.js`
 
 ```js
@@ -667,7 +685,7 @@ Sabse simple test: login ke baad URL mein `/login` na ho.
 ```js
 describe("Add Product", () => {
   beforeEach(() => {
-    cy.loginAndEnterStore(...);
+    cy.enterDataStore();
     productsPage.visit();
   });
 
@@ -704,7 +722,7 @@ Sabse naya aur sabse bara test — iski poori design-history Masla 14 mein hai. 
 
 ```js
 it("creates a simple and a variant product, and places one order containing both", () => {
-  cy.loginAndEnterStore(...);           // 1 admin login
+  cy.enterDataStore();                  // 1 admin login (sirf dataStores wala store)
 
   // Simple product banaya
   productsPage.visit();
@@ -734,7 +752,7 @@ it("creates a simple and a variant product, and places one order containing both
         /* ... login, details, payment, pickup date/time, place order ... */
 
         checkoutPage.getOrderId().then((orderId) => {
-          cy.loginAndEnterStore(...);   // sirf 1 session restore
+          cy.enterDataStore();          // sirf 1 session restore
           ordersPage.visit();
           ordersPage.searchOrderId(orderId);
           ordersPage.confirmOrderVisible(orderId);
@@ -795,10 +813,10 @@ forEachStore(allStoresStores, (store) => {
 - `after()` har run ke aakhir mein HTML report likhta hai, chahe test fail ho.
 
 ### `reports/category-reconciliation.cy.js`
-Teen category reports aapas mein match karta hai: **Sales by Category**, **Category Sales (Detailed)** aur **Category Sold Report**. Ye **sirf storeb** par chalta hai (`STORE` constant), `reportStores` list use nahi karta.
+Teen category reports aapas mein match karta hai: **Sales by Category**, **Category Sales (Detailed)** aur **Category Sold Report**. Stores baqi report specs wali liston se aate hain (pehle sirf storeb hardcoded tha).
 
-- Test 1: sirf storeb selected.
-- Test 2: storeb ke andar har category page par sab stores selected (wahi `storeIdsWithAllSelected` tareeqa).
+- `reportStores` ke har store ka ek test: sirf wohi store selected.
+- `reportAllStoresStores` ke har store ka ek test: us store ke andar har category page par sab stores selected (wahi `storeIdsWithAllSelected` tareeqa).
 - Checks (`categoryMappings.js`): Gross Sales, Net Sales, Quantity Sold, Discounts, Cost, Profit, Margin %. Discounts, Cost, Profit aur Margin sirf Sales by Category aur Category Sold ke beech hain; Detailed ka discount jod aapke kehne par shamil nahi.
 - Item Sold Report ka Cost bhi ek dafa milaya gaya tha, lekin aapke kehne par is test se hata diya (dekhein section 5 ke bugs).
 - HTML report: `cypress/reports-output/category-reconciliation-<date>_<time>.html`.
@@ -827,17 +845,12 @@ HTML report: `cypress/reports-output/order-count-reconciliation-<date>_<time>.ht
 
 ### `all-tests.cy.js`
 ```js
-require("./login.cy.js");
-require("./store-view.cy.js");
-require("./add-product.cy.js");
-require("./add-category.cy.js");
-require("./storefront-search.cy.js");
-require("./new-product-order.cy.js");
-require("./reports/report-reconciliation.cy.js");
-require("./reports/category-reconciliation.cy.js");
-require("./reports/order-count-reconciliation.cy.js");
+require("./data-tests.cy.js");     // login, store-view, add-product, add-category, storefront-search, new-product-order
+require("./report-tests.cy.js");   // report, category aur order count reconciliation
 ```
-Sab specs ko ek hi "file/tab" mein merge karta hai — wajah Masla 5 mein (Chrome apni last tab band hote hi khud exit ho jata hai). Report tests sabse aakhir mein hain, is liye unki "Today" value mein isi run ke order tests ke naye orders bhi shamil hote hain.
+`data-tests.cy.js` aur `report-tests.cy.js` khud bhi chalaye ja sakte hain (`npm run test:data` / `npm run test:reports`, section 8). Report tests kabhi data nahi banate, is liye `test:reports` kisi bhi report store par mehfooz hai.
+
+`all-tests.cy.js` sab specs ko ek hi "file/tab" mein merge karta hai — wajah Masla 5 mein (Chrome apni last tab band hote hi khud exit ho jata hai). Report tests sabse aakhir mein hain, is liye unki "Today" value mein isi run ke order tests ke naye orders bhi shamil hote hain.
 
 ---
 
@@ -934,7 +947,7 @@ Formula checks mein bhi optional `tolerance` ho sakta hai, mappings jaisa.
 - Custom range: `cypress.env.json` mein `"reportStartDate"` aur `"reportEndDate"` dein. Phir sirf wahi ek range chalegi.
 
 **`ReportsApi.js`**:
-- `captureContext()`: Dashboard page kholta hai aur app ki apni dashboard API call ko intercept karke bearer token, login fields aur `merchant_id` utha leta hai. `storeIds` shuru mein sirf current store hota hai; all-stores test isme saare stores daal deta hai.
+- `captureContext(merchantId)`: Dashboard page kholta hai aur app ki apni dashboard API call ko intercept karke bearer token, login fields aur `merchant_id` utha leta hai. `storeIds` shuru mein sirf current store hota hai; all-stores test isme saare stores daal deta hai. `merchantId` diya ho (store badalne ke baad) to sirf usi store ki call li jati hai (Masla 34).
 - `fetch(reportName, context, range)`: report API ko call karta hai, `ok`, reported range aur reported stores check karta hai, aur `allPages` ho to saare pages jodta hai.
 - `reconcile(context, range, mappings)`: har report ko ek hi dafa fetch karta hai, phir har group ki values cents mein compare karta hai (`303` aur `"303.00"` barabar). Har group ki ek row return karta hai, assert nahi karta, taake saari mismatches ek sath report hon. Mismatch par jo value baqi se alag ho uspe ⚠ lagta hai.
 - `checkFormulas` / `evaluateFormulas`: formula checks.
@@ -1005,6 +1018,7 @@ module.exports = defineConfig({
     "username": "...",
     "password": "...",
     "storeUnderTest": "storeb",
+    "dataStores": ["storeb"],
     "customerEmail": "...",
     "customerPassword": "...",
     "reportStores": ["storeb", "monster01"],
@@ -1013,6 +1027,7 @@ module.exports = defineConfig({
   ```
   Cypress yeh file khud-ba-khud load kar ke `Cypress.env(...)` mein merge kar deta hai — config file mein kuch badalna nahi parta. `cypress.env.json.example` sirf shape dikhane ke liye version-controlled hai (placeholder values ke saath).
   `customerEmail`/`customerPassword` baad mein add hue jab storefront-side checkout tests banay (customer apna alag login hai, admin se). `reportStores` aur `reportAllStoresStores` report reconciliation ke stores ki lists hain (section 5); store add ya remove karne ke liye sirf ye lists badlein, code nahi. `reportAllStoresStores` na ho to sirf storeb chalta hai.
+  `dataStores` un stores ki list hai jahan tests data bana sakte hain (products, categories, orders). Data banane wale tests `storeUnderTest` mein jate hain, lekin sirf tab jab woh is list mein ho (`cy.enterDataStore()`, section 3). **Jis store mein data nahi banana, use `dataStores` mein na likhein**; usay sirf `reportStores` / `reportAllStoresStores` mein rakhein.
 
 ---
 
@@ -1209,7 +1224,12 @@ Ek dafa mein: Dashboard "Month" / "Locations" button "is being covered by anothe
 
 ### Masla 33 — All stores mein achanak 3 stores reh gaye
 2026-11-03 ko Store B ke account se "Lama" aur "Test Limelight" picker mein aana band ho gaye (pehle 5 stores thay). Saare 6 report pages ne yahi 3 bheje, is liye test pass hota hai, lekin ab sirf 3 stores check hote hain.
-**Wajah:** account ke store access mein kisi ne badlav kiya; code ka masla nahi. Agar ghalti se hua hai to admin se theek karwayein.
+**Wajah:** account ke store access mein kisi ne badlav kiya; code ka masla nahi. Agar ghalti se hua hai to admin se theek karwayein. 2026-11-04 ko list kabhi khaali (0) aur kabhi 3 stores (MONSTER01, Store B, Lama) aati rahi. Khaali ho to report pages ke picker mein "All Stores" option hi nahi hota, aur All Stores wale tests "All Stores" / Outlet menu na milne par fail hote hain.
+
+### Masla 34 — Teesre store ke naam par pichle store ka data (jhoota MATCH)
+"jenny smoke shop" (report-only store) add karne ke baad uski Yesterday ki 3 transactions report mein 0 aayin, aur "This year" bilkul monster01 jaisa tha.
+**Wajah:** report-reconciliation ek login mein stores badalta hai (storeb → monster01 → jenny). Naye store mein jate hi Dashboard pehle **pichle store** ki ek call karta tha, aur `captureContext()` pehli call utha leta tha. Saari reports monster01 ki aayin, aapas mein barabar thin, is liye MATCH dikha.
+**Fix:** `StoreDirectoryPage.enterStore()` jis row se store kholta hai usi se merchant id (jaise `JAI16179CA`) padhta hai (`innerText` se; `.text()` cells ko jod deta hai), aur `captureContext(merchantId)` / dashboard views sirf usi id wali call lete hain. Category aur order count specs har test mein seedha apne store mein login karte hain, unhe yeh masla nahi tha.
 
 ---
 
@@ -1221,6 +1241,8 @@ Ek dafa mein: Dashboard "Month" / "Locations" button "is being covered by anothe
 | `npm run test:store-view` | Sirf store-view test |
 | `npm run test:add-product` | Sirf add-product test (simple + variant product creation) |
 | `npm run test:add-category` | Sirf add-category test |
+| `npm run test:data` | **Sirf data banane wale tests** (`data-tests.cy.js`: login, store-view, add-product, add-category, storefront-search, new-product-order). Sirf `dataStores` wale store mein chalte hain |
+| `npm run test:reports` | **Sirf report checks** (`report-tests.cy.js`: report, category, order count). Kabhi data nahi banate |
 | `npm run test:all` (ya `npm run cypress:headed`) | **`all-tests.cy.js` (sab specs) ek hi window mein**, aakhir mein khula rehta hai |
 | `npm run cypress:run` | Headless (bina browser dikhaye) — `all-tests.cy.js` |
 | `npm run cypress:open` | Interactive mode, Chrome mein. Spec par click karke chalayein; passed test bhi step by step khulta hai |
@@ -1244,8 +1266,10 @@ npm run test:all
 
 1. Agar naye page/screen ka test hai, `cypress/pages/` mein ek nayi Page class banayein (`LoginPage.js` ki tarah) — selectors + actions ek jagah, `module.exports = new ClassName()` ke saath.
 2. Agar product-jaisa koi naya entity banana hai jiska naam/price realistic hona chahiye, `cypress/support/testData.js` ke `randomProductName()`/`randomPricePair()` dobara istemaal karein (ya wahan nayi helper add karein) — naya hardcoded naam/price na likhein.
-3. `cypress/e2e/` mein nayi `*.cy.js` file banayein, zaroori Page classes ko `require` karke use karein. Agar test ko sirf "kisi store ke andar hona" chahiye (login/store-view khud test nahi karna), `cy.loginAndEnterStore(...)` istemaal karein — apna fresh login code na likhein.
-4. `all-tests.cy.js` mein naye spec ka `require(...)` add kar dein taake woh bhi "ek hi window" wale run mein shamil ho jaye.
+3. `cypress/e2e/` mein nayi `*.cy.js` file banayein, zaroori Page classes ko `require` karke use karein. Agar test ko sirf "kisi store ke andar hona" chahiye (login/store-view khud test nahi karna), apna fresh login code na likhein:
+   - Test **kuch banata, badalta ya order karta hai** → `cy.enterDataStore()` (sirf `dataStores` wale store mein jayega).
+   - Test **sirf padhta/milata hai** → `cy.loginAndEnterStore(...)`, aur stores `reportStores` se.
+4. Naye spec ka `require(...)` sahi combined file mein add karein: data banane wala ho to `data-tests.cy.js`, sirf report check ho to `report-tests.cy.js`. `all-tests.cy.js` dono ko khud shamil kar leta hai.
 5. Agar koi UI interaction "non-obvious" nikle (jaise async-loading dropdown, hidden duplicate DOM, ya server-side delay), Page class ke method ke upar hi ek chota comment likhein jo **wajah** bataye — jaisa is poori file mein har jagah kiya gaya hai. Agle kisi ko (ya khud aapko 2 mahine baad) wahi masla dobara discover nahi karna parega.
 
 ### Nayi report comparison kaise add karein
@@ -1265,7 +1289,7 @@ Aksar test ka code chhedne ki zaroorat nahi:
    Field ka `path` API ke JSON response se aata hai (browser DevTools → Network tab mein response dekh lein). Agar page value khud calculate karta hai to `path` ki jagah `compute: (body) => ...` likhein.
 2. **Agar naya report chahiye:** pehle DevTools mein us report ki API request dekhein: endpoint, format (multipart ya JSON) aur jo extra fields jati hain. Phir `reportDefinitions.js` mein ek entry banayein (`format`, `endpoint`, `fields`, `ok`, aur agar API apni range/stores batati hai to `reportedRange`/`reportedLocations`). Rows pages mein aati hon to `allPages` bhi. Uske baad step 1 ki tarah mapping add karein.
 3. **Naya formula check (ek hi report ke andar):** `formulaChecks.js` mein `inputs`, `compute`, `display` aur `actual` ke saath ek entry (zaroorat ho to `tolerance` bhi). `report: "dashboard"` wale dashboard page ke views par chalte hain; baqi report-reconciliation ke har date filter par khud chal jate hain.
-4. **Naya store:** single store ke liye `cypress.env.json` ki `reportStores`, all stores ke liye `reportAllStoresStores` list mein naam add karein (store directory mein jis naam se search hota hai).
+4. **Naya store:** single store ke liye `cypress.env.json` ki `reportStores`, all stores ke liye `reportAllStoresStores` list mein naam add karein (store directory mein jis naam se search hota hai). Report checks data nahi banate, is liye yahan koi bhi store mehfooz hai. Agar us store mein data bhi banana ho, tabhi `dataStores` mein bhi add karein.
 5. **Naye report page par "all stores":** page object banayein (`visit()` + select all). Agar picker `reportStorePickers.js` wale kisi picker jaisa hai to wahi function call karein. Phir spec ki `ALL_STORES_PAGES` list mein `{ name, endpoint, open, selectAll }` add karein.
 6. **Naya date filter:** `reconciliationConfig.js` ke `getDateRanges()` mein ek `range(label, start, end)` add karein. Ek baar ki custom range ke liye `reportStartDate`/`reportEndDate` env kaafi hai. Order count test apni `RANGE_LABELS` list use karta hai; wahan label add karein.
    - Agar test page ke UI se dates chunta hai (API seedha nahi), to `datePicker.js` ka `pickDateRange("reactDatepicker" | "mui", range)` use karein, apna calendar code na likhein.
