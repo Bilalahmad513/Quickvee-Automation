@@ -29,6 +29,7 @@ cypress-automation/
     │   │   ├── category-reconciliation.cy.js  → 3 category reports aapas mein match
     │   │   ├── order-count-reconciliation.cy.js → Sales by Order Type orders = Orders page In-Store + Online
     │   │   ├── item-sold-export.cy.js   → Item Sold Report ki Export CSV file = page ka Total row (download ya email)
+    │   │   ├── item-sold-filters.cy.js  → Item Sold Report ka search + Category/Brand/Tag filters, aur All Stores mein UPC grouping
     │   │   └── category-sold-export.cy.js → Category Sold Report ki Export CSV ke columns ka jod = page ka summary (download ya email)
     │   ├── data-tests.cy.js      → Data banane wale tests (+ login/store-view) ek sath
     │   ├── report-tests.cy.js    → Sirf report checks ek sath (data nahi banate)
@@ -61,7 +62,7 @@ cypress-automation/
     │   ├── DetailedCategoryReportPage.js│
     │   ├── CategorySoldReportPage.js   │ (+ dates, Export CSV, summary)
     │   ├── SalesByOrderTypePage.js     │ (+ dates chunna)
-    │   ├── ItemSoldReportPage.js       ┘ (+ dates, Export CSV, Total row)
+    │   ├── ItemSoldReportPage.js       ┘ (+ dates, Export CSV, Total row, search, Category/Brand/Tag)
     │   ├── reportStorePickers.js       → Store pickers jo kai report pages par same hain
     │   ├── reportDateRangeButton.js    → Item Sold + Category Sold ka date range calendar (presets / start-end + Retrieve)
     │   └── datePicker.js               → Start/End Date calendars (report pages + Orders page)
@@ -869,10 +870,44 @@ HTML report: `cypress/reports-output/order-count-reconciliation-<date>_<time>.ht
 - **Quickvee bug (WARNING, fail nahi):** email wali file kabhi **"Price Override" column ke baghair** aati hai (5 Nov 2026, storeb This year: 5 mein se 3 emails). Tab us ka Subtotal price overrides jitna kam hota hai ($218.56), baqi sab barabar. Aisi email file par test do **peeli WARNING** rows dikhata hai aur Subtotal compare nahi karta. Download wali file mein column hamesha hota hai, wahan missing ho to test fail hota hai.
 - HTML report: `cypress/reports-output/category-sold-export-<date>_<time>.html`.
 
+### `reports/item-sold-filters.cy.js`
+**Item Sold Report** ka search box aur **Category / Brand / Tag** filters, aur All Stores mein items ka UPC se judna. Sirf data padhta hai. Date: `RANGE_LABEL` = last month (poora mahina, taake chunne ko kaafi items hon).
+
+**Tareeqa:** test pehle bina filter ke store ki **poori listing** leta hai: page ki apni `items_sales_report_api` call, jo dobara 500 rows fi page bheji jati hai jab tak saari rows na aa jayein. Phir filter ki value isi listing se chunta hai (hard code nahi), page par filter lagata hai aur milata hai:
+- filtered rows mein koi aisi row nahi jo filter se match na kare
+- listing ka koi matching item chhoota nahi
+- page ka "All N items" aur Total row (Sold, Subtotal) = matching items ka jod
+
+**Filter tests** (`FILTER_CASES`, `reportStores` mein se har store; jenny chhoda gaya kyun ke us ke account par yeh report nahi):
+
+| Test | Value kaise chuni jati hai | Rule |
+|---|---|---|
+| Naam ka hissa, capital mein | Sab se zyada bikne wale item ke naam ka beech/aakhri lafz ("Yoga Mat 79067" → "MAT") | Naam ya UPC mein kahin bhi, chhote/bade harf ka farq nahi |
+| Poora naam | Sab se zyada bikne wale item ka naam | **Exact match**, sirf wohi naam |
+| UPC | Usi item ka UPC | Wohi item |
+| Ek category / ek brand / ek tag | Jis ke sab se zyada items hain | Sirf us ke items |
+| Do categories | Top 2 categories | **OR**: dono mein se kisi ke bhi |
+| Category + Brand + Tag | Pehla item jis mein teeno hon | **AND**: teeno wale |
+
+Agar listing mein chunne ko kuch na ho (jaise kisi store mein brand hi nahi), test skip hota hai.
+
+**All Stores tests** (`reportAllStoresStores`): test har store ki listing alag (`outlet_ids` = ek store) le kar khud UPC se jodta hai aur All Stores ki rows se milata hai.
+- **Grouping:** rows = UPCs ki ginti = page "All N items"; koi UPC do rows mein nahi; koi item missing/extra nahi; har UPC ka Sold, Subtotal, Subtotal w/ Discounts, Cost = stores ka jod; row ka naam kisi store ka naam ho.
+- **Same naam, alag UPC → alag rows:** har aise naam ki apni row. Jaise Oct 2026 mein "test 1" (143168483234, 970488829669) aur "Mac 5" (849991696547, 700169568964): 2-2 rows, har row ka Sold sirf usi UPC ka.
+- **Same UPC, alag naam → ek row:** jaise UPC 700169568964 = Store B "juice ss" + Lama "Mac 5" → ek row "juice ss", Sold 10 + 1 = 11. Naam kisi bhi store ka aa sakta hai (user ka rule, bug nahi).
+- **Bina UPC wale items** (Custom Item, Lottery/Scratcher Payout; asal products nahi) Quickvee **naam se** jodta hai, test bhi.
+
+**Live par jo dekha (5 Nov 2026):**
+- Filters `items_sales_report_api` ke fields hain: `search_by`, `cat_name`, `search_by_brand`, `search_by_tag`. Kayi values comma se jaati hain (`"ABC,Quickadd"`), naam se, id se nahi.
+- Category/Brand/Tag dropdown ek Radix popover hai: button ke `aria-controls` mein popover ki id, andar "Search category..." box, har value ek checkbox + `<label>`. `ItemSoldReportPage.selectFilterOptions()` value search box mein likh kar us ka exact label click karta hai.
+- Har item mein `category_name`, `brand`, `tags` (kayi ho to `"pax 1,pax 2"`) aur `upc` aata hai.
+
+HTML report: `cypress/reports-output/item-sold-filters-<date>_<time>.html`.
+
 ### `all-tests.cy.js`
 ```js
 require("./data-tests.cy.js");     // login, store-view, add-product, add-category, storefront-search, new-product-order
-require("./report-tests.cy.js");   // report, category, order count reconciliation + Item Sold / Category Sold exports
+require("./report-tests.cy.js");   // report, category, order count reconciliation + Item Sold / Category Sold exports + Item Sold filters
 ```
 `data-tests.cy.js` aur `report-tests.cy.js` khud bhi chalaye ja sakte hain (`npm run test:data` / `npm run test:reports`, section 8). Report tests kabhi data nahi banate, is liye `test:reports` kisi bhi report store par mehfooz hai.
 
