@@ -5,3 +5,4 @@ require("./reports/report-reconciliation.cy.js");
 require("./reports/category-reconciliation.cy.js");
 require("./reports/order-count-reconciliation.cy.js");
 require("./reports/item-sold-export.cy.js");
+require("./reports/category-sold-export.cy.js");

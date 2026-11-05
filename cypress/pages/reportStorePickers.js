@@ -67,10 +67,25 @@ function selectAllInSelectAllPopover(trigger) {
   return cy.get("body").type("{esc}");
 }
 
+// Same popover, leaving only the store the session is in: "Deselect All"
+// keeps the current store (confirmed live on the Item Sold and Category Sold
+// reports - the page then asked for Store B alone), so no store is clicked
+// by name.
+function selectCurrentStoreInSelectAllPopover(trigger) {
+  trigger().click();
+  cy.get('[role="dialog"]', { timeout: 15000 })
+    .contains("button", /^(Select|Deselect) All$/, { timeout: 15000 })
+    .then(($button) => {
+      if ($button.text() === "Deselect All") cy.wrap($button).click();
+    });
+  return cy.get("body").type("{esc}");
+}
+
 module.exports = {
   storesFilterTrigger,
   selectAllInStoresFilter,
   outletDropDownTrigger,
   selectAllInOutletDropDown,
   selectAllInSelectAllPopover,
+  selectCurrentStoreInSelectAllPopover,
 };

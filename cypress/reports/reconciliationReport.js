@@ -39,7 +39,10 @@ function rowValues(row) {
 // On a mismatch, the values that differ from the rest are marked with ⚠.
 // "✔ MATCH", "✔ MATCH (within ±$0.05)" for a match only within a mapping's
 // or formula check's tolerance, or "✘ MISMATCH".
+// A row with `warning` (a known Quickvee problem the check works around)
+// doesn't fail the test - it's shown as "⚠ WARNING: <why>" instead.
 function resultText(row) {
+  if (row.warning) return `⚠ WARNING: ${row.warning}`;
   if (!row.match) return "✘ MISMATCH";
   return row.withinTolerance ? `✔ MATCH (within ±$${row.tolerance.toFixed(2)})` : "✔ MATCH";
 }
@@ -62,6 +65,8 @@ const LOG_STYLES = `
   .command-name-match .command-method, .command-name-match .command-message { color: #7ee787 !important; }
   .command-name-mismatch .command-wrapper { background: rgba(248, 81, 73, 0.25) !important; border-left: 4px solid #f85149 !important; }
   .command-name-mismatch .command-method, .command-name-mismatch .command-message { color: #ff7b72 !important; }
+  .command-name-warning .command-wrapper { background: rgba(210, 153, 34, 0.25) !important; border-left: 4px solid #d29922 !important; }
+  .command-name-warning .command-method, .command-name-warning .command-message { color: #e3b341 !important; }
 `;
 
 function injectLogStyles() {
@@ -75,7 +80,7 @@ function injectLogStyles() {
 
 function logRow(row) {
   Cypress.log({
-    name: row.match ? "match" : "mismatch",
+    name: row.warning ? "warning" : row.match ? "match" : "mismatch",
     displayName: resultText(row),
     message:
       `[${row.store}] **${rangeTitle(row.range)}** (${rangeDates(row.range)}) · **${row.label}** → ` +
@@ -94,10 +99,11 @@ function escapeHtml(value) {
 
 function buildHtml(rows, generatedAt, title = "Report Reconciliation") {
   const mismatches = rows.filter((r) => !r.match).length;
+  const warnings = rows.filter((r) => r.warning).length;
   const tableRows = rows
     .map(
       (r) => `
-      <tr class="${r.match ? "match" : "mismatch"}">
+      <tr class="${r.warning ? "warning" : r.match ? "match" : "mismatch"}">
         <td>${escapeHtml(r.store)}</td>
         <td>${escapeHtml(rangeTitle(r.range))}</td>
         <td>${escapeHtml(rangeDates(r.range))}</td>
@@ -138,13 +144,15 @@ function buildHtml(rows, generatedAt, title = "Report Reconciliation") {
   tr.match .result { color: #166534; font-weight: 600; }
   tr.mismatch { background: #fef2f2; }
   tr.mismatch .result { color: #991b1b; font-weight: 600; }
+  tr.warning { background: #fefce8; }
+  tr.warning .result { color: #854d0e; font-weight: 600; }
 </style>
 </head>
 <body>
   <h1>${escapeHtml(title)}</h1>
   <div class="meta">Generated ${escapeHtml(generatedAt)}</div>
   <div class="summary ${mismatches ? "bad" : "ok"}">
-    ${rows.length} comparisons, ${rows.length - mismatches} matched, ${mismatches} mismatched
+    ${rows.length} comparisons, ${rows.length - mismatches - warnings} matched, ${mismatches} mismatched${warnings ? `, ${warnings} warnings` : ""}
   </div>
   <table>
     <thead>
