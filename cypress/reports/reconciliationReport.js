@@ -67,6 +67,9 @@ const LOG_STYLES = `
   .command-name-mismatch .command-method, .command-name-mismatch .command-message { color: #ff7b72 !important; }
   .command-name-warning .command-wrapper { background: rgba(210, 153, 34, 0.25) !important; border-left: 4px solid #d29922 !important; }
   .command-name-warning .command-method, .command-name-warning .command-message { color: #e3b341 !important; }
+  li.qv-mismatch-test > .collapsible > .runnable-wrapper { background: rgba(248, 81, 73, 0.25) !important; border-left: 4px solid #f85149 !important; }
+  li.qv-mismatch-test > .collapsible > .runnable-wrapper .runnable-title { color: #ff7b72 !important; }
+  li.qv-mismatch-test > .collapsible > .runnable-wrapper .runnable-title::after { content: "  ✘ MISMATCH (not failed)"; font-weight: 600; }
 `;
 
 function injectLogStyles() {
@@ -87,6 +90,61 @@ function logRow(row) {
       rowValues(row).map((v) => formatValue(v, row.format, true)).join(" | "),
     consoleProps: () => ({ store: row.store, range: row.range, check: row.label, values: rowValues(row) }),
   });
+}
+
+// `failOnMismatch` in cypress.env.json: false = a mismatch is only shown
+// (red in the command log and the HTML report) and the test still passes;
+// true, or not set = the test fails on any mismatch. Errors (a page that
+// doesn't load, a button that isn't found) fail the test either way.
+function failOnMismatch() {
+  const setting = Cypress.env("failOnMismatch");
+  return setting !== false && setting !== "false";
+}
+
+// With failOnMismatch false, a test that had mismatches still passes, but
+// its line in Cypress's test list (left panel, li.test.runnable - confirmed
+// in the runner's DOM) is painted red with "✘ MISMATCH (not failed)". The
+// runner redraws that list as tests run (and resets its classes), so a
+// watcher keeps re-applying the mark to every title in the set. A test that
+// later runs clean (re-run, retry) is taken out of the set.
+function markTestInList(title, hasMismatches) {
+  const top = window.top;
+  const doc = top.document;
+  top.__qvMismatchTests = top.__qvMismatchTests || new Set();
+  if (hasMismatches) top.__qvMismatchTests.add(title);
+  else top.__qvMismatchTests.delete(title);
+
+  const paint = () =>
+    doc.querySelectorAll("li.test.runnable").forEach((li) => {
+      const name = li.querySelector(".runnable-title > span");
+      const marked = Boolean(name) && top.__qvMismatchTests.has(name.textContent);
+      // Only touch the class when it's wrong, so the watcher doesn't set
+      // itself off.
+      if (li.classList.contains("qv-mismatch-test") !== marked) li.classList.toggle("qv-mismatch-test", marked);
+    });
+  if (!top.__qvMismatchWatcher) {
+    top.__qvMismatchWatcher = new top.MutationObserver(paint);
+    top.__qvMismatchWatcher.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  }
+  paint();
+}
+
+// The end of every report test: `mismatches` are the rows that didn't
+// match. Fails the test with their lines - or, with failOnMismatch false,
+// only logs how many there were and paints the test red in the test list.
+function assertNoMismatches(mismatches) {
+  const lines = "\n" + mismatches.map((m) => m.line).join("\n");
+  markTestInList(Cypress.currentTest.title, mismatches.length > 0 && !failOnMismatch());
+  if (mismatches.length && !failOnMismatch()) {
+    Cypress.log({
+      name: "mismatch",
+      displayName: "✘ NOT FAILED",
+      message: `${mismatches.length} mismatch(es) - failOnMismatch is false, so the test passes. See the red rows above.`,
+    });
+    cy.task("log", `${mismatches.length} mismatch(es) not failed (failOnMismatch: false):${lines}`, { log: false });
+    return;
+  }
+  expect(mismatches, lines).to.be.empty;
 }
 
 function escapeHtml(value) {
@@ -166,4 +224,4 @@ function buildHtml(rows, generatedAt, title = "Report Reconciliation") {
 `;
 }
 
-module.exports = { formatLine, buildHtml, injectLogStyles, logRow };
+module.exports = { formatLine, buildHtml, injectLogStyles, logRow, assertNoMismatches };

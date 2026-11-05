@@ -2,7 +2,7 @@ const salesByOrderTypePage = require("../../pages/SalesByOrderTypePage");
 const ordersPage = require("../../pages/OrdersPage");
 const reportsApi = require("../../reports/ReportsApi");
 const { getStores, getDateRanges } = require("../../reports/reconciliationConfig");
-const { buildHtml, injectLogStyles, logRow, formatLine } = require("../../reports/reconciliationReport");
+const { buildHtml, injectLogStyles, logRow, formatLine, assertNoMismatches } = require("../../reports/reconciliationReport");
 
 // Checked one store at a time (the reportStores list in cypress.env.json -
 // see reconciliationConfig.js), for each of these date filters - one test
@@ -14,13 +14,16 @@ const RANGE_LABELS = ["today", "yesterday", "last month", "this year"];
 
 const ORDER_LIST_API = "https://api-node.quickvee.us/orders-management-new-ui/order_list";
 
-// The Online tab's Order Status filter as the check uses it: every status
-// except "Accepted", "Refunded", "Cancelled" and "Failed" - the report
-// doesn't count cancelled orders (confirmed live: Aug 2026's one cancelled
-// online order was missing from it), and failed ones aren't sales either.
-// The tab's default (Accepted, Packing, Ready, Out for Delivery) leaves out
-// completed orders, so it would undercount.
-const ONLINE_ORDER_STATUSES = ["Packing", "Ready", "Out for Delivery", "Delivered", "Picked Up"];
+// The Online tab's Order Status filter as the check uses it: completed
+// orders only. The report counts an online order once it's Delivered or
+// Picked Up - not while it's still Accepted, Packing, Ready or Out for
+// Delivery (confirmed live, jenny smoke shop: Oct 2026 report 5 online =
+// Delivered 1 + Picked Up 4, with 1 Packing + 1 Ready left out; this year
+// 109 = Delivered 26 + Picked Up 83, with 14 in progress left out). Nor
+// Refunded, Cancelled (Aug 2026's one cancelled online order was missing
+// from it) or Failed. The tab's default (Accepted, Packing, Ready, Out for
+// Delivery) shows no completed orders at all, so the test sets its own.
+const ONLINE_ORDER_STATUSES = ["Delivered", "Picked Up"];
 
 // "Packing, Ready, ..." -> sorted names, so the order the page sends them in
 // doesn't matter.
@@ -77,7 +80,7 @@ function captureOrderCalls(range, rangeLabel) {
         fields.order_method === "All" &&
         isRange(fields) &&
         Cypress._.isEqual(statusSet(fields.orderStatus), [...ONLINE_ORDER_STATUSES].sort()),
-      `Online orders (completed and in-progress statuses), ${rangeLabel}`,
+      `Online orders (Delivered and Picked Up), ${rangeLabel}`,
       25
     )
     .then((call) => {
@@ -165,7 +168,7 @@ describe("Order Count Reconciliation", () => {
   const assertAllMatch = (title) =>
     cy.then(() => {
       const mismatches = rowsByTest[title].filter((r) => !r.match);
-      expect(mismatches, "\n" + mismatches.map((m) => m.line).join("\n")).to.be.empty;
+      assertNoMismatches(mismatches);
     });
 
   // Each count is taken from the API call the page itself makes once its

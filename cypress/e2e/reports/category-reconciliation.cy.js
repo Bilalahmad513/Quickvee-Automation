@@ -4,7 +4,7 @@ const categorySoldReportPage = require("../../pages/CategorySoldReportPage");
 const reportsApi = require("../../reports/ReportsApi");
 const categoryMappings = require("../../reports/categoryMappings");
 const { getStores, getAllStoresStores, getDateRanges } = require("../../reports/reconciliationConfig");
-const { buildHtml, injectLogStyles, logRow, formatLine } = require("../../reports/reconciliationReport");
+const { buildHtml, injectLogStyles, logRow, formatLine, assertNoMismatches } = require("../../reports/reconciliationReport");
 
 // Stores the category reports are checked for, same lists as the other
 // reconciliation specs (cypress.env.json, see reconciliationConfig.js):
@@ -83,7 +83,7 @@ describe("Category Report Reconciliation", () => {
       const rows = rowsByTest[testTitle];
       const mismatches = rows.filter((r) => !r.match);
       expect(rows, "checks run").to.not.be.empty;
-      expect(mismatches, "\n" + mismatches.map((m) => m.line).join("\n")).to.be.empty;
+      assertNoMismatches(mismatches);
     });
   }
 

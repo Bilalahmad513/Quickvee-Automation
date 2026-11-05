@@ -15,7 +15,7 @@ const formulaChecks = require("../../reports/formulaChecks");
 const DASHBOARD_FORMULAS = formulaChecks.filter((check) => check.report === "dashboard");
 const REPORT_FORMULAS = formulaChecks.filter((check) => check.report !== "dashboard");
 const { getStores, getAllStoresStores, getDateRanges } = require("../../reports/reconciliationConfig");
-const { formatLine, buildHtml, injectLogStyles, logRow } = require("../../reports/reconciliationReport");
+const { formatLine, buildHtml, injectLogStyles, logRow, assertNoMismatches } = require("../../reports/reconciliationReport");
 
 // The dashboard views the formula test clicks through, using the page's own
 // "VIEW BY" toggle and "Previous" button. Each sequence starts from a fresh
@@ -149,7 +149,7 @@ describe("Report Reconciliation", () => {
       const rows = rowsByTest[testTitle];
       const mismatches = rows.filter((r) => !r.match);
       expect(rows, "checks run").to.not.be.empty;
-      expect(mismatches, "\n" + mismatches.map((m) => m.line).join("\n")).to.be.empty;
+      assertNoMismatches(mismatches);
     });
   }
 
