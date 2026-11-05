@@ -28,7 +28,8 @@ cypress-automation/
     │   │   ├── report-reconciliation.cy.js    → Dashboard + 5 sales reports aapas mein match
     │   │   ├── category-reconciliation.cy.js  → 3 category reports aapas mein match
     │   │   ├── order-count-reconciliation.cy.js → Sales by Order Type orders = Orders page In-Store + Online
-    │   │   └── item-sold-export.cy.js   → Item Sold Report ki Export CSV file = page ka Total row (download ya email)
+    │   │   ├── item-sold-export.cy.js   → Item Sold Report ki Export CSV file = page ka Total row (download ya email)
+    │   │   └── category-sold-export.cy.js → Category Sold Report ki Export CSV ke columns ka jod = page ka summary (download ya email)
     │   ├── data-tests.cy.js      → Data banane wale tests (+ login/store-view) ek sath
     │   ├── report-tests.cy.js    → Sirf report checks ek sath (data nahi banate)
     │   └── all-tests.cy.js       → Dono
@@ -58,10 +59,11 @@ cypress-automation/
     │   ├── LocationReportPage.js       │ sab stores select karna
     │   ├── SalesByCategoryPage.js      │
     │   ├── DetailedCategoryReportPage.js│
-    │   ├── CategorySoldReportPage.js   │
+    │   ├── CategorySoldReportPage.js   │ (+ dates, Export CSV, summary)
     │   ├── SalesByOrderTypePage.js     │ (+ dates chunna)
     │   ├── ItemSoldReportPage.js       ┘ (+ dates, Export CSV, Total row)
     │   ├── reportStorePickers.js       → Store pickers jo kai report pages par same hain
+    │   ├── reportDateRangeButton.js    → Item Sold + Category Sold ka date range calendar (presets / start-end + Retrieve)
     │   └── datePicker.js               → Start/End Date calendars (report pages + Orders page)
     └── support/
         ├── e2e.js
@@ -859,10 +861,18 @@ HTML report: `cypress/reports-output/order-count-reconciliation-<date>_<time>.ht
 - Gmail ke liye `cypress.env.json` mein `exportEmailUser` aur `exportEmailAppPassword` (Google ka 16 harfon ka **App Password**; asli password IMAP par nahi chalta).
 - HTML report: `cypress/reports-output/item-sold-export-<date>_<time>.html`.
 
+### `reports/category-sold-export.cy.js`
+**Category Sold Report** ka **Export CSV** dabata hai aur file ko page se milata hai. Sirf data padhta hai. Stores, dates, download/email ka tareeqa bilkul Item Sold export jaisa hai (`STORES_WITHOUT_CATEGORY_SOLD_REPORT` mein `jenny smoke shop`; `EMAILED_RANGES` storeb aur storeb + All Stores, This year; email mein report ka naam "Category Sold Report").
+- **Farq:** is file mein **TOTAL row nahi hoti**, sirf har category ki ek row. Is liye test khud har column ka **jod** karta hai (cents mein) aur page ke **summary card** (Subtotal, Discounts, Subtotal w/ Discounts, Total, Cost, Profit) se milata hai. Discounts bina sign ke.
+- **Margin** jodta nahi: CSV Profit ÷ Subtotal w/ Discounts (0 agar sale 0) = page ka Margin.
+- **Ginti:** CSV rows = page ki API ka `total_categories` (+ email "Rows"); CSV Qty ka jod = API `total_qty` (page par quantity ka total nahi dikhta).
+- **Quickvee bug (WARNING, fail nahi):** email wali file kabhi **"Price Override" column ke baghair** aati hai (5 Nov 2026, storeb This year: 5 mein se 3 emails). Tab us ka Subtotal price overrides jitna kam hota hai ($218.56), baqi sab barabar. Aisi email file par test do **peeli WARNING** rows dikhata hai aur Subtotal compare nahi karta. Download wali file mein column hamesha hota hai, wahan missing ho to test fail hota hai.
+- HTML report: `cypress/reports-output/category-sold-export-<date>_<time>.html`.
+
 ### `all-tests.cy.js`
 ```js
 require("./data-tests.cy.js");     // login, store-view, add-product, add-category, storefront-search, new-product-order
-require("./report-tests.cy.js");   // report, category aur order count reconciliation
+require("./report-tests.cy.js");   // report, category, order count reconciliation + Item Sold / Category Sold exports
 ```
 `data-tests.cy.js` aur `report-tests.cy.js` khud bhi chalaye ja sakte hain (`npm run test:data` / `npm run test:reports`, section 8). Report tests kabhi data nahi banate, is liye `test:reports` kisi bhi report store par mehfooz hai.
 
