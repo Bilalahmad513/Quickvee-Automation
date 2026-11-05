@@ -816,7 +816,7 @@ forEachStore(allStoresStores, (store) => {
 - **All stores ka tareeqa:** har report page (Dashboard, Sales Summary, Hourly, Discounts, Location, Sales by Order Type) Chrome mein khulta hai, uske picker mein sab stores select hote hain (`reportStorePickers.js`), aur page ne jo store ids API ko bheje woh pakad liye jate hain. Saare pages ke ids barabar hone chahiye, aur un mein current store ki id honi chahiye. Phir 7 date filters ka data API se aata hai, pehle ki tarah. Stores ki list hardcode nahi: account mein store aaye ya jaye to test khud adjust kar leta hai. Masalan 2026-10-28 ko "Test Limelight" aaya tha, aur 2026-11-03 tak Store B ke account se "Lama" aur "Test Limelight" hat gaye (ab 3 stores: MONSTER04, MONSTER01, Store B).
 - **Formula checks do jagah:** Dashboard wale (`report: "dashboard"`) dashboard page ke views par chalte hain (`DASHBOARD_FORMULAS`). Baqi (abhi Sales Summary ka Total Amount Collected) har date filter par API se, reports ke comparison ke saath chalte hain (`REPORT_FORMULAS`).
 - **Dashboard formulas:** `DASHBOARD_VIEW_SEQUENCES` page ke apne buttons chalata hai: Day (today) → Previous (yesterday) → Previous (day before yesterday), aur Month (this month) → Previous (last month) → Previous (before last month). Har view par dashboard ki apni API call pakad kar uspe formula lagta hai. Dashboard par Year view nahi hai, is liye "this year" seedha API se check hota hai. All-stores wale test mein ek view tabhi ginta hai jab page ne waqai woh saare stores mange hon.
-- `beforeEach` har attempt ke shuru mein us test ki rows khaali karta hai. Isse retry ke baad HTML report mein purani, fail hui attempt ki rows nahi aati. (Retries abhi band hain, section 6.)
+- `beforeEach` har attempt ke shuru mein us test ki rows khaali karta hai. Isse retry ke baad HTML report mein purani, fail hui attempt ki rows nahi aati. (Abhi har fail test 1 dafa dobara chalta hai, section 6.)
 - `after()` har run ke aakhir mein HTML report likhta hai, chahe test fail ho.
 
 ### `reports/category-reconciliation.cy.js`
@@ -841,7 +841,7 @@ Teen category reports aapas mein match karta hai: **Sales by Category**, **Categ
 |---|---|
 | Report | `data.current` ki rows ka `total_count` jod. **Bina order type wali row** (`order_method: ""`, $0) chhod di jati hai. Is mein full-refund orders hote hain |
 | In-Store | "All Orders" (refunds samet) **minus full refunds**. "Refunded Only" list mein partial refunds bhi hote hain, is liye sirf woh gine jate hain jin ka status Refunded ho gaya (`m_status "7"`). Partial refund wala order gina rehta hai |
-| Online | Order Status: **Packing, Ready, Out for Delivery, Delivered, Picked Up**. Accepted, Refunded, Cancelled aur Failed nahi (report cancelled orders nahi ginti) |
+| Online | Order Status: sirf **Delivered, Picked Up** (mukammal orders). Accepted, Packing, Ready, Out for Delivery (abhi chal rahe), Refunded, Cancelled aur Failed nahi. Report bhi online order tabhi ginti hai jab woh mukammal ho (Masla 35) |
 
 Log line poora hisaab dikhati hai, jaise:
 `[storeb] Last month · Total Orders → Sales by Order Type Total Orders (leaving out 3 with no order type): 145 | Orders In-Store (94 - 7 fully refunded = 87) + Online (58): 145 ✔ MATCH`
@@ -867,6 +867,7 @@ HTML report: `cypress/reports-output/order-count-reconciliation-<date>_<time>.ht
 - **Farq:** is file mein **TOTAL row nahi hoti**, sirf har category ki ek row. Is liye test khud har column ka **jod** karta hai (cents mein) aur page ke **summary card** (Subtotal, Discounts, Subtotal w/ Discounts, Total, Cost, Profit) se milata hai. Discounts bina sign ke.
 - **Margin** jodta nahi: CSV Profit ÷ Subtotal w/ Discounts (0 agar sale 0) = page ka Margin.
 - **Ginti:** CSV rows = page ki API ka `total_categories` (+ email "Rows"); CSV Qty ka jod = API `total_qty` (page par quantity ka total nahi dikhta).
+- **Quickvee: All Stores email file page se alag (5 Nov 2026, 10:02 UTC se):** storeb + All Stores, This year ki email file mein 141 rows aayi, page par 137 categories. File category ke naam ke chhote/bade harf par alag rows banati hai (AUTOMOBILES 10 + Automobiles 20; page par AUTOMOBILES 30), kuch items doosri category mein (Custom Category 257 → 249, VINTAGE 560 → 539), aur Total $1,718.18 zyada. Subah 06:08 UTC wali file page se match karti thi. Test yahan sahi fail hota hai; developers ko batana hai.
 - **Quickvee bug (WARNING, fail nahi):** email wali file kabhi **"Price Override" column ke baghair** aati hai (5 Nov 2026, storeb This year: 5 mein se 3 emails). Tab us ka Subtotal price overrides jitna kam hota hai ($218.56), baqi sab barabar. Aisi email file par test do **peeli WARNING** rows dikhata hai aur Subtotal compare nahi karta. Download wali file mein column hamesha hota hai, wahan missing ho to test fail hota hai.
 - HTML report: `cypress/reports-output/category-sold-export-<date>_<time>.html`.
 
@@ -1052,7 +1053,7 @@ module.exports = defineConfig({
     viewportWidth: 1920,
     viewportHeight: 1080,
     video: true,
-    retries: { runMode: 0, openMode: 0 },
+    retries: { runMode: 1, openMode: 1 },
     setupNodeEvents(on, config) {
       on("task", { log(message) { console.log(message); return null; } });
       on("before:browser:launch", (browser, launchOptions) => {
@@ -1071,7 +1072,7 @@ module.exports = defineConfig({
 - `baseUrl` ab `quickvee.com` hai (pehle `admin-panel-test.quickvee.us` tha) — jaise-jaise tests storefront (customer-facing side) tak phaile, dono admin aur storefront isi ek domain par hain.
 - `viewportWidth/Height` fix kiya gaya (1920x1080) taake har run consistent layout par chale (MUI ke responsive breakpoints — Masla 10 dekhein — iss par depend karte hain).
 - `video: true` — `cypress run` passed test ka step-by-step log UI mein nahi rakhta (Masla 22), lekin video record hoti hai taake pass hone wale test ko bhi dobara dekh sakein. (`--no-exit` wala run jab tak khula ho, video file adhoori rehti hai aur khulti nahi.) Passed test ko step by step kholna ho to `npm run cypress:open` istemaal karein.
-- `retries: { runMode: 0, openMode: 0 }` — **abhi har test sirf 1 dafa chalta hai** (aapke kehne par, 2026-11-03). Fail ho to error foran pehli koshish mein dikhta hai. Pehle `{ runMode: 2, openMode: 2 }` tha, yani fail hone wala test 2 dafa aur chalta tha (Masla 16). Retries band hone se dheere page loads wale kuch intezar saamne aaye, jo lambe kar diye gaye (Masla 32). Wapas lana ho to `{ runMode: 2, openMode: 2 }` kar dein. Dhyan rahe: data banane wale tests (`add-product`, `new-product-order`) ka retry naya product/order dobara banata hai.
+- `retries: { runMode: 1, openMode: 1 }` — **fail hone wala test 1 dafa dobara chalta hai** (aapke kehne par, 2026-11-05; 3 Nov se 0 tha). Dusri koshish bhi fail ho tab test fail ginta hai. Jaise Orders page ka calendar jo interactive window mein kabhi beech mein band ho jata hai. Email wale export test ka retry Gmail mein ek aur export email bhejta hai. Pehle `{ runMode: 2, openMode: 2 }` tha, yani fail hone wala test 2 dafa aur chalta tha (Masla 16). Retries band hone se dheere page loads wale kuch intezar saamne aaye, jo lambe kar diye gaye (Masla 32). Wapas lana ho to `{ runMode: 2, openMode: 2 }` kar dein. Dhyan rahe: data banane wale tests (`add-product`, `new-product-order`) ka retry naya product/order dobara banata hai.
 - **Credentials ab `cypress.config.js` mein hardcoded nahi hain** — `cypress.env.json` (gitignored) mein hain:
   ```json
   {
@@ -1085,12 +1086,19 @@ module.exports = defineConfig({
     "reportStores": ["storeb", "monster01", "jenny smoke shop"],
     "reportAllStoresStores": ["storeb"],
     "exportEmailUser": "...@gmail.com",
-    "exportEmailAppPassword": "..."
+    "exportEmailAppPassword": "...",
+    "failOnMismatch": false
   }
   ```
   Cypress yeh file khud-ba-khud load kar ke `Cypress.env(...)` mein merge kar deta hai — config file mein kuch badalna nahi parta. `cypress.env.json.example` sirf shape dikhane ke liye version-controlled hai (placeholder values ke saath).
   `customerEmail`/`customerPassword` baad mein add hue jab storefront-side checkout tests banay (customer apna alag login hai, admin se). `reportStores` aur `reportAllStoresStores` report reconciliation ke stores ki lists hain (section 5); store add ya remove karne ke liye sirf ye lists badlein, code nahi. `reportAllStoresStores` na ho to sirf storeb chalta hai.
   `dataStores` un stores ki list hai jahan tests data bana sakte hain (products, categories, orders). Data banane wale tests `storeUnderTest` mein jate hain, lekin sirf tab jab woh is list mein ho (`cy.enterDataStore()`, section 3). **Jis store mein data nahi banana, use `dataStores` mein na likhein**; usay sirf `reportStores` / `reportAllStoresStores` mein rakhein.
+  `failOnMismatch` saare report tests (reconciliation, category, order count, exports, Item Sold filters) ke liye switch hai:
+  - `false`: test **fail nahi** hota (pass ginta hai), lekin MISMATCH saaf **laal** dikhta hai: Cypress ki left list mein us test ki poori line laal ho jati hai, naam ke aage "✘ MISMATCH (not failed)" aata hai, andar mismatch rows aur aakhir mein "✘ NOT FAILED: N mismatch(es)" laal, terminal mein "N mismatch(es) not failed", aur HTML report mein laal rows. List wali line `markTestInList()` banata hai (runner ki list dobara bante hi rang dobara laga deta hai). Retry ya rerun mein test saaf chale to laal hat jata hai.
+  - `true` ya **likha hi na ho**: pehle jaisa, koi bhi MISMATCH ho to test **fail** (default, taake naya machine ya CI galti se sab green na dikhaye).
+  - Errors (page na khule, button na mile, calendar band ho jaye) har haal mein fail hote hain; woh mismatch nahi.
+  - Ek run ke liye badalna ho to: `CYPRESS_failOnMismatch=true npm run test:reports`.
+  - Code: `assertNoMismatches()` in `cypress/reports/reconciliationReport.js`.
 
 ---
 
@@ -1278,6 +1286,11 @@ Yesterday ke liye report mein 4 online orders, Orders page par sirf 1.
 Oct 2026 mein report 148 vs Orders 155, This year 1 order ka farq.
 **Wajah:** Orders page ka "All Orders" refunded orders bhi ginta hai, aur "Refunded Only" mein partial refunds bhi hote hain. Report full-refund orders ko kabhi nahi ginti, kabhi bina type ki $0 row mein ginti hai. Report cancelled online orders bhi nahi ginti (Store B, Aug 2026 ka ek cancelled order).
 **Faisla (aapka):** full refunds dono taraf se nikalte hain, partial refunds gine jate hain, cancelled/failed online orders nahi gine jate. Report ki bina type wali row test chhod deta hai. Tafseel section 4 (order count) mein.
+
+### Masla 35 — jenny smoke shop: Orders page par online orders zyada (5 Nov 2026)
+Last month report 20 vs Orders 22, This year 1,392 vs 1,406.
+**Wajah:** test online mein Packing, Ready aur Out for Delivery bhi gin raha tha, lekin report online order sirf **Delivered / Picked Up** hone par ginti hai. jenny ke kuch paid orders abhi tak chal rahe the (jaise 6ACF62B8D925D Packing aur 6ACF62EF91E04 Ready, 14 Oct se). Last month: report 5 = Delivered 1 + Picked Up 4, 2 chal rahe. This year: 109 = 26 + 83, 14 chal rahe. Store B aur MONSTER01 mein aise orders nahi the, is liye pehle pakda nahi gaya.
+**Fix:** `ONLINE_ORDER_STATUSES` = Delivered, Picked Up. Teeno stores ke 12 tests pass.
 
 ### Masla 32 — Retries band karne ke baad tests timeout par fail hone lage
 Ek dafa mein: Dashboard "Month" / "Locations" button "is being covered by another element" (loading backdrop), aur store badalte waqt search results "Timed out retrying after 10000ms".
