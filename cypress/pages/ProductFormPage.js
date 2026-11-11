@@ -15,6 +15,52 @@ function saveOutcome($body) {
   return null;
 }
 
+const normalizeText = (s) => String(s || "").replace(/\s+/g, " ").trim().toLowerCase();
+
+// The picker's own container: its Field (nearest ancestor with a direct
+// <label> child), or - for an unlabeled picker - the picker root, the
+// input row's parent (chips row + input row + option list).
+function fieldOf($input) {
+  const $field = $input.parents().filter((_, el) => Cypress.$(el).children("label").length > 0).first();
+  return $field.length ? $field : $input.parent().parent();
+}
+
+// Chip names in `$scope`: spans with a direct remove <button>, not inside a
+// <button> themselves (option rows are buttons).
+function chipTexts($scope) {
+  return $scope
+    .find("span")
+    .filter((_, el) => Cypress.$(el).children("button").length > 0 && !el.closest("button"))
+    .map((_, el) => el.textContent.trim())
+    .get();
+}
+
+// The input of the field labelled `label` ("Price" also matches "Price *").
+function fieldInput(label) {
+  return cy
+    .contains("label", new RegExp(`^\\s*${Cypress._.escapeRegExp(label)}\\s*\\*?\\s*$`), { timeout: 15000 })
+    .parent()
+    .find("input")
+    .first();
+}
+
+const amountOf = (value) => Number(String(value || "").replace(/[^0-9.-]/g, ""));
+
+// Whole-text match for an option, for cy.contains().
+const exactText = (text) => new RegExp(`^\\s*${Cypress._.escapeRegExp(String(text).trim())}\\s*$`, "i");
+
+// Which category step the page is at after typing `name`: "modal" (the
+// Create category modal is open), "option" (an option with exactly `name`),
+// "createRow" (only the `+ Create "<name>"` row), or null (still loading).
+function categoryStep($body, name, allowCreate) {
+  const heading = $body.find("div").filter((_, el) => el.children.length === 0 && /^\s*Create category\s*$/.test(el.textContent));
+  if (allowCreate && heading.length) return "modal";
+  const $buttons = $body.find('input[placeholder="Add a category"]').parent().next().find("button");
+  if ($buttons.toArray().some((el) => normalizeText(el.textContent) === normalizeText(name))) return "option";
+  if (allowCreate && $buttons.toArray().some((el) => el.textContent.includes(`Create "${name}"`))) return "createRow";
+  return null;
+}
+
 class ProductFormPage {
   // First field on the form - the add-product page can sit on a loading
   // spinner well past the default 4s before the form renders.
@@ -22,21 +68,22 @@ class ProductFormPage {
     return cy.get('input[placeholder="Enter product name"]', { timeout: 30000 }).clear().type(name);
   }
 
-  // A selected option shows up as a chip (span.qv-inv-chip) above the
-  // field's input. The chip is rendered from the form's own state, so seeing
-  // it means the selection actually registered - not just that the option
-  // was clicked. Waiting for it before moving on keeps a click that hadn't
-  // landed yet from surfacing later as a "Select Category" save failure.
+  // A selected option shows up as a chip in a row above the field's input:
+  // a <span> holding the name and a remove <button> (no class to rely on -
+  // the picker styles it inline). The chip is rendered from the form's own
+  // state, so seeing it means the selection actually registered - not just
+  // that the option was clicked. Waiting for it before moving on keeps a
+  // click that hadn't landed yet from surfacing later as a "Select
+  // Category" save failure.
+  //
+  // Scoped to the field's own container: the nearest ancestor of the input
+  // with its own <label> ("Categories *" etc.), so other pickers' chips and
+  // the open option list never count.
   assertChipSelected(placeholder, optionText) {
-    return cy
-      .get(`input[placeholder="${placeholder}"]`)
-      .parent()
-      .parent()
-      .find(".qv-inv-chip", { timeout: 10000 })
-      .should(($chips) => {
-        const selected = Cypress._.map($chips, (chip) => chip.innerText.trim());
-        expect(selected, `selected chips in "${placeholder}"`).to.include(optionText);
-      });
+    return cy.get(`input[placeholder="${placeholder}"]`, { timeout: 10000 }).should(($input) => {
+      const selected = chipTexts(fieldOf($input)).map(normalizeText);
+      expect(selected, `selected in the "${placeholder}" field`).to.include(normalizeText(optionText));
+    });
   }
 
   // Category, Brand and Tags all render as the same custom combobox: an
@@ -162,6 +209,262 @@ class ProductFormPage {
   fillAvailableToSell(min = 10, max = 100) {
     const quantity = String(Cypress._.random(min, max));
     return cy.contains("Available to sell").parent().find('input[placeholder="0"]').clear().type(quantity);
+  }
+
+  // Picks the first category the store already has - never creates one. A
+  // store with none can't get products this way, so that throws.
+  selectFirstExistingCategory() {
+    const placeholder = "Add a category";
+    const input = () => cy.get(`input[placeholder="${placeholder}"]`, { timeout: 30000 });
+    input().click();
+    return input()
+      .parent()
+      .next()
+      .should("be.visible")
+      .find("button", { timeout: 15000 })
+      .then(($buttons) => {
+        const options = $buttons.toArray().filter((el) => {
+          const text = el.textContent.trim();
+          return text !== "" && !/^load more$/i.test(text) && !text.startsWith('Create "');
+        });
+        if (!options.length) throw new Error("NO_CATEGORIES: this store has no categories to pick.");
+        const optionText = options[0].textContent.trim();
+        cy.wrap(options[0]).click();
+        this.assertChipSelected(placeholder, optionText);
+        cy.get("body").type("{esc}");
+        return cy.wrap(optionText, { log: false });
+      });
+  }
+
+  // Selects the category `name` in the Categories field, or creates it.
+  //
+  // After typing, whichever of these shows up first is handled (waited for,
+  // not a fixed delay):
+  //   - an option with exactly `name`         -> clicked
+  //   - the "Create category" modal            -> filled and submitted
+  //   - the list's `+ Create "<name>"` row     -> clicked, which opens the modal
+  // The modal (name prefilled, Delivery + Pickup ticked, optional Taxes,
+  // Cancel / "Create category") posts Categoryapi/add_category; on
+  // {status: "Success"} it closes and the new category becomes a chip in
+  // the Categories field. Yields "selected" or "created".
+  //
+  // `allowCreate: false` only ever selects (waits up to 60s - a new
+  // category takes a few seconds to become searchable).
+  selectOrCreateCategory(name, { allowCreate = true } = {}) {
+    const placeholder = "Add a category";
+    const input = () => cy.get(`input[placeholder="${placeholder}"]`, { timeout: 30000 });
+
+    input().scrollIntoView().click();
+    input().clear().type(name);
+
+    return cy
+      .get("body", { timeout: allowCreate ? 30000 : 60000 })
+      .should(($body) => {
+        expect(categoryStep($body, name, allowCreate), allowCreate ? `"${name}" option, its Create row or the Create category modal` : `existing "${name}" option`).to.not.equal(null);
+      })
+      .then(($body) => {
+        const step = categoryStep($body, name, allowCreate);
+        if (step === "option") {
+          // Clicked through a query, not a stored element: the list
+          // re-renders while it loads (confirmed live - a stale element
+          // can't be clicked).
+          input().parent().next().contains("button", exactText(name)).click();
+          this.assertChipSelected(placeholder, name);
+          cy.get("body").type("{esc}");
+          return cy.wrap("selected", { log: false });
+        }
+        if (step === "createRow") input().parent().next().contains("button", `Create "${name}"`).click();
+        return this.submitCategoryModal(name);
+      });
+  }
+
+  // The "Create category" modal: the container of its own heading (the app
+  // renders it without role="dialog" or a .modal class).
+  categoryModal() {
+    return cy.contains("div", /^\s*Create category\s*$/, { timeout: 15000 }).parent();
+  }
+
+  submitCategoryModal(name) {
+    const placeholder = "Add a category";
+    cy.intercept("POST", "**/Categoryapi/add_category").as("createCategory");
+
+    this.categoryModal()
+      .should("be.visible")
+      .within(() => {
+        cy.get('input[placeholder="Enter category name"]').then(($name) => {
+          if ($name.val().trim() !== name) cy.wrap($name).clear().type(name);
+        });
+        cy.get('input[placeholder="Enter category name"]').should("have.value", name);
+        // Delivery and Pickup stay ticked (the modal's defaults); Taxes left empty.
+        cy.contains("button", /^\s*Create category\s*$/).should("be.enabled").click();
+      });
+
+    return cy.wait("@createCategory", { timeout: 30000 }).then(({ response }) => {
+      expect(response.statusCode, "add_category HTTP status").to.be.within(200, 299);
+      const body = typeof response.body === "string" ? Cypress._.attempt(JSON.parse, response.body) : response.body;
+      const ok = body && (body.status === "Success" || body.message === "Success");
+      const message = (body && (body.update_message || body.msg || body.message)) || "";
+
+      if (ok) {
+        cy.contains("div", /^\s*Create category\s*$/).should("not.exist");
+        this.assertChipSelected(placeholder, name);
+        cy.get("body").type("{esc}");
+        return cy.wrap("created", { log: false });
+      }
+      if (/exist|already|duplicate/i.test(message)) {
+        cy.log(`"${name}" already exists - selecting it instead`);
+        this.categoryModal().within(() => cy.contains("button", /^\s*Cancel\s*$/).click());
+        cy.contains("div", /^\s*Create category\s*$/).should("not.exist");
+        return this.selectOrCreateCategory(name, { allowCreate: false });
+      }
+      throw new Error(`Creating category "${name}" failed: ${message || JSON.stringify(body)}`);
+    });
+  }
+
+  // Price, Cost and Compare-at price as entered, and the form's computed
+  // Margin (%) and Profit ($) - which must follow price and cost.
+  assertPricing({ price, cost, compare }) {
+    fieldInput("Price").should(($i) => expect(amountOf($i.val()), "Price in the form").to.equal(Number(price)));
+    fieldInput("Cost").should(($i) => {
+      expect(amountOf($i.val()), "Cost in the form").to.equal(Number(cost));
+      expect(amountOf($i.val()), "Cost below price").to.be.lessThan(Number(price));
+    });
+    fieldInput("Compare-at price").should(($i) => {
+      expect(amountOf($i.val()), "Compare-at price in the form").to.equal(Number(compare));
+      expect(amountOf($i.val()), "Compare-at price above price").to.be.greaterThan(Number(price));
+    });
+    const profit = Number(price) - Number(cost);
+    const margin = (profit / Number(price)) * 100;
+    fieldInput("Profit").should(($i) => expect(amountOf($i.val()), "Profit = price - cost").to.be.closeTo(profit, 0.011));
+    return fieldInput("Margin").should(($i) => expect(amountOf($i.val()), "Margin % = profit / price").to.be.closeTo(margin, 0.011));
+  }
+
+  // An existing product's edit page (/merchants/inventory/new-products/edit/<id>),
+  // once its saved data has loaded into the form.
+  visitEdit(productId) {
+    cy.visit(`/merchants/inventory/new-products/edit/${productId}`);
+    return cy.get('input[placeholder="Enter product name"]', { timeout: 60000 }).should("not.have.value", "");
+  }
+
+  // "Reorder point" and "Reorder quantity" (whole numbers; quantity must be
+  // above 0) as the form shows them: { point, qty }.
+  readReorder() {
+    return fieldInput("Reorder point")
+      .invoke("val")
+      .then((point) => fieldInput("Reorder quantity").invoke("val").then((qty) => ({ point: String(point || ""), qty: String(qty || "") })));
+  }
+
+  setReorder(point, qty) {
+    fieldInput("Reorder point").scrollIntoView().clear().type(String(point));
+    fieldInput("Reorder quantity").clear().type(String(qty));
+    fieldInput("Reorder point").should("have.value", String(point));
+    return fieldInput("Reorder quantity").should("have.value", String(qty));
+  }
+
+  // "Compare-at price" ($, "0.00" placeholder), scoped by its label.
+  fillComparePrice(value) {
+    return cy.contains("Compare-at price").parent().find('input[placeholder="0.00"]').clear().type(value);
+  }
+
+  // "Related Products" (same picker as Categories, up to 15). Picks `count`
+  // different existing products, one per opening of the picker, preferring
+  // ones `avoid(name)` doesn't flag (e.g. products made by this same run);
+  // flagged ones are used only when too few others are listed. Yields their
+  // names.
+  addRelatedProducts(count, { avoid = () => false } = {}) {
+    const placeholder = "Search products to add...";
+    const input = () => cy.get(`input[placeholder="${placeholder}"]`, { timeout: 30000 });
+    const picked = [];
+    const candidates = ($buttons) => $buttons.toArray().filter((el) => this.isRealOption(el) && !picked.includes(el.textContent.trim()));
+
+    const pickOne = () => {
+      input().scrollIntoView().click();
+      return input()
+        .parent()
+        .next()
+        .should("be.visible")
+        .find("button", { timeout: 20000 })
+        .should(($buttons) => {
+          const need = count - picked.length;
+          expect(candidates($buttons).length, `existing products listed for Related Products (${need} more needed)`).to.be.at.least(need);
+        })
+        .then(($buttons) => {
+          const all = candidates($buttons);
+          const option = all.find((el) => !avoid(el.textContent.trim())) || all[0];
+          const name = option.textContent.trim();
+          picked.push(name);
+          // Clicked through a query so a re-rendered list can't leave a stale element.
+          input().parent().next().contains("button", exactText(name)).click();
+          return cy.get("body").type("{esc}");
+        });
+    };
+
+    Cypress._.times(count, () => pickOne());
+    // The picker has no label of its own, so its chips are read from the
+    // picker root (input row's parent), not a labelled field.
+    return input()
+      .should(($input) => expect(chipTexts($input.parent().parent()).length, "related products selected").to.be.at.least(count))
+      .then(() => picked);
+  }
+
+  // A real option row - not "Load more" or the `+ Create "…"` row.
+  isRealOption(el) {
+    const text = el.textContent.trim();
+    return text !== "" && !/^load more$/i.test(text) && !/Create "/.test(text);
+  }
+
+  // "Tax Information" > "+ Add another tax" > "Choose a tax": picks the first
+  // tax not already on the product. Yields its name.
+  addTax() {
+    cy.contains("+ Add another tax", { timeout: 15000 }).scrollIntoView().click();
+    return cy
+      .get('input[placeholder="Choose a tax"]', { timeout: 15000 })
+      .parent()
+      .next()
+      .find("button", { timeout: 20000 })
+      .should("have.length.at.least", 1)
+      .first()
+      .then(($tax) => {
+        const name = $tax.find("span").first().text().trim() || $tax.text().trim();
+        cy.get('input[placeholder="Choose a tax"]').parent().next().contains("button", name).click();
+        cy.get('button[title="Remove tax"]', { timeout: 10000 }).should("have.length.at.least", 1);
+        return cy.wrap(name, { log: false });
+      });
+  }
+
+  // "Pricing & Inventory" > UPC (input name="upcCode", 30 chars max). Blur
+  // starts the form's own uniqueness check.
+  fillUpc(upc) {
+    return cy.get('input[name="upcCode"]', { timeout: 15000 }).scrollIntoView().clear().type(upc).blur();
+  }
+
+  // Like attachPhoto(), but never fails the test: a missing file input or a
+  // rejected image is only logged. Yields true if the form took the photo.
+  tryAttachPhoto(fixturePath) {
+    return cy.get("body").then(($body) => {
+      // The product photos input is the multi-file one (each variant row has
+      // its own single-file input); any image input is the fallback.
+      let $input = $body.find('input[type="file"][multiple]');
+      if (!$input.length) $input = $body.find('input[type="file"][accept*="image"], input[type="file"][accept*="png"]');
+      if (!$input.length) {
+        cy.log("Photo upload skipped - no photo input found");
+        return cy.wrap(false, { log: false });
+      }
+      cy.wrap($input.first()).selectFile(fixturePath, { force: true });
+      // The thumbnail renders from a local object URL right after the pick;
+      // a rejected file shows a toast instead.
+      return cy.get("body").then(($after) => {
+        const attached = $after.find('button[title="Remove photo"]').length > 0;
+        cy.log(attached ? "Photo attached" : "Photo was not accepted - continuing without it");
+        return cy.wrap(attached, { log: false });
+      });
+    });
+  }
+
+  removePhotos() {
+    return cy.get("body").then(($body) => {
+      $body.find('button[title="Remove photo"]').each((_, button) => button.click());
+    });
   }
 
   // Single products' "SKU Codes" section: a list of "Custom Code" inputs,

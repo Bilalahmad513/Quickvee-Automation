@@ -1,7 +1,7 @@
-const categoriesPage = require("../pages/CategoriesPage");
-const productsPage = require("../pages/ProductsPage");
-const productFormPage = require("../pages/ProductFormPage");
-const { randomProductName, randomPricePair } = require("../support/testData");
+const categoriesPage = require("../../pages/CategoriesPage");
+const productsPage = require("../../pages/ProductsPage");
+const productFormPage = require("../../pages/ProductFormPage");
+const { randomProductName, randomPricePair } = require("../../support/testData");
 
 describe("Add Category", () => {
   it("creates a new category and uses it on a new simple product", () => {

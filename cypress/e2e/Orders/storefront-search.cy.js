@@ -1,7 +1,7 @@
-const storefrontPage = require("../pages/StorefrontPage");
-const productDetailPage = require("../pages/ProductDetailPage");
-const checkoutPage = require("../pages/CheckoutPage");
-const ordersPage = require("../pages/OrdersPage");
+const storefrontPage = require("../../pages/StorefrontPage");
+const productDetailPage = require("../../pages/ProductDetailPage");
+const checkoutPage = require("../../pages/CheckoutPage");
+const ordersPage = require("../../pages/OrdersPage");
 
 describe("Storefront Search", () => {
   it("searches a random product, adds it to cart, checks out with customer login, places the order, confirms it in the admin Orders module, and marks it picked up", () => {

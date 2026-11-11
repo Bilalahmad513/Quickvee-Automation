@@ -59,10 +59,15 @@ module.exports = defineConfig({
       // window mid-session here (observed Chrome silently jumping from 153
       // to 154 between runs). This is Chrome's own documented QA/testing
       // flag to suppress that "restart to update" behavior for the launched
-      // instance.
+      // instance. The value has no quotes around it: Cypress passes args to
+      // Chrome directly (no shell), so quotes would be part of the value and
+      // make the date unreadable - the flag then did nothing, and a staged
+      // update (new_chrome.exe) kept closing the window mid-run.
+      // --disable-component-update stops background component downloads too.
       on("before:browser:launch", (browser, launchOptions) => {
         if (browser.family === "chromium") {
-          launchOptions.args.push("--simulate-outdated-no-au='Tue, 31 Dec 2099 23:59:59 GMT'");
+          launchOptions.args.push("--simulate-outdated-no-au=Tue, 31 Dec 2099 23:59:59 GMT");
+          launchOptions.args.push("--disable-component-update");
         }
         return launchOptions;
       });

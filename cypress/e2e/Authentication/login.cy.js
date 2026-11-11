@@ -1,4 +1,4 @@
-const loginPage = require("../pages/LoginPage");
+const loginPage = require("../../pages/LoginPage");
 
 describe("Merchant Login", () => {
   it("logs in successfully with valid super admin credentials", () => {

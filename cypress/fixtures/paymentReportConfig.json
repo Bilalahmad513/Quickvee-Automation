@@ -1,0 +1,8 @@
+{
+  "allowedHost": "test.quickvee.us",
+  "storeName": "Monster04",
+  "merchantId": "BIL1456474NC",
+  "reportPath": "/merchants/store-reporting/payment-report-new",
+  "registerPath": "/merchants/web-register",
+  "productSearch": "a"
+}

@@ -1,5 +1,5 @@
-const loginPage = require("../pages/LoginPage");
-const storeDirectoryPage = require("../pages/StoreDirectoryPage");
+const loginPage = require("../../pages/LoginPage");
+const storeDirectoryPage = require("../../pages/StoreDirectoryPage");
 
 describe("Store View", () => {
   it("finds a store under Users > Live/Inactive Stores and opens its store view", () => {

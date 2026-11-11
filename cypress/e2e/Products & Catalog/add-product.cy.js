@@ -1,6 +1,6 @@
-const productsPage = require("../pages/ProductsPage");
-const productFormPage = require("../pages/ProductFormPage");
-const { randomProductName, randomPricePair } = require("../support/testData");
+const productsPage = require("../../pages/ProductsPage");
+const productFormPage = require("../../pages/ProductFormPage");
+const { randomProductName, randomPricePair } = require("../../support/testData");
 
 const SIZE_VALUE_POOL = ["Small", "Medium", "Large", "X-Large", "X-Small"];
 

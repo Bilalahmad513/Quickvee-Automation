@@ -1,0 +1,9 @@
+{
+  "baseUrl": "https://test.quickvee.us",
+  "allowedHost": "test.quickvee.us",
+  "storeName": "Monster01",
+  "merchantId": "BIL1813474MA",
+  "poCount": 10,
+  "quantity": 10,
+  "unitPrice": "10.00"
+}

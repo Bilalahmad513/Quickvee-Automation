@@ -9,7 +9,9 @@ const storeDirectoryPage = require("../pages/StoreDirectoryPage");
 // Cypress restores the cached session instead after the first run.
 Cypress.Commands.add("loginAndEnterStore", (storeName, username, password, storeUnderTest) => {
   cy.session(
-    ["loginAndEnterStore", storeName, username, storeUnderTest],
+    // baseUrl is part of the key: a spec can run against another environment
+    // (suite-level baseUrl), whose cookies a cached session wouldn't have.
+    ["loginAndEnterStore", Cypress.config("baseUrl"), storeName, username, storeUnderTest],
     () => {
       loginPage.login(storeName, username, password);
       storeDirectoryPage.enterStore(storeUnderTest);
