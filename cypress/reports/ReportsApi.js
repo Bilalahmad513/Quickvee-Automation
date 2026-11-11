@@ -434,11 +434,54 @@ class ReportsApi {
     return this.reportCallAfter("dashboard", trigger, isWanted, describe).then(({ body }) => body);
   }
 
+  // "All stores (2): Store B, MONSTER01" - the label a report row gets when
+  // every store was selected, naming the stores the page actually asked for
+  // (user, 11 Nov 2026: "storeb + all stores" didn't say which stores).
+  // Names come from the account's store list (location-sales/locations, the
+  // one the Location Report picker uses), asked with the login of the last
+  // report call a page made - so no page is opened and the page's own
+  // selection stays as it is. Names are kept for the rest of the run. A
+  // store the list doesn't name (or a failed lookup) shows its id instead.
+  storesLabel(storeIds) {
+    const ids = [...storeIds];
+    const label = () => `All stores (${ids.length}): ${ids.map((id) => this.storeNames[id] || id).join(", ")}`;
+    this.storeNames = this.storeNames || {};
+    if (ids.every((id) => this.storeNames[id]) || !this.lastLogin) return cy.wrap(label(), { log: false });
+
+    const context = this.lastLogin;
+    return cy
+      .request({
+        method: "POST",
+        timeout: REQUEST_TIMEOUT,
+        url: `${REPORTS_API}/location-sales/locations`,
+        qs: { merchant_id: context.merchantId },
+        headers: { Authorization: context.authorization },
+        body: { merchant_id: context.merchantId, ...jsonLoginFields(context) },
+        failOnStatusCode: false,
+        log: false,
+      })
+      .then((res) => {
+        (Cypress._.get(res.body, "data.locations") || []).forEach((l) => {
+          if (l.id && l.name) this.storeNames[l.id] = l.name;
+        });
+        return label();
+      });
+  }
+
   waitForMatchingCall(alias, isWanted, describe, attemptsLeft) {
     return cy.wait(`@${alias}`, { timeout: 30000 }).then(({ request, response }) => {
       const fields =
         typeof request.body === "object" ? request.body : parseMultipart(request.body, request.headers["content-type"]);
       if (isWanted(fields, response.body)) {
+        // A reports-api call carries the login (token_id etc.) - kept for
+        // storesLabel().
+        if (fields.token_id && request.headers.authorization) {
+          this.lastLogin = {
+            authorization: request.headers.authorization,
+            merchantId: fields.merchant_id || fields.login_merchant_id,
+            loginFields: Cypress._.pick(fields, LOGIN_FIELDS),
+          };
+        }
         return { fields, body: response.body, authorization: request.headers.authorization };
       }
       if (attemptsLeft > 1) return this.waitForMatchingCall(alias, isWanted, describe, attemptsLeft - 1);

@@ -84,8 +84,6 @@ const ALL_STORES_PAGES = [
   },
 ];
 
-const allStoresLabel = (store, storeIds) => `${store} + all stores (${storeIds.length})`;
-
 describe("Report Reconciliation", () => {
   const stores = getStores();
   const allStoresStores = getAllStoresStores();
@@ -236,7 +234,7 @@ describe("Report Reconciliation", () => {
       reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
         reportsApi.captureContext(merchantId).then((context) => {
           expect(storeIds, `all stores include ${store}'s own id`).to.include(context.merchantId);
-          reconcileAllRanges(title, allStoresLabel(store, storeIds), { ...context, storeIds });
+          reportsApi.storesLabel(storeIds).then((label) => reconcileAllRanges(title, label, { ...context, storeIds }));
         });
       });
     });
@@ -252,7 +250,7 @@ describe("Report Reconciliation", () => {
 
     forEachStore(allStoresStores, (store, merchantId) => {
       reportsApi.storeIdsWithAllSelected([DASHBOARD_ALL_STORES]).then((storeIds) => {
-        checkDashboardFormulas(title, allStoresLabel(store, storeIds), storeIds, merchantId);
+        reportsApi.storesLabel(storeIds).then((label) => checkDashboardFormulas(title, label, storeIds, merchantId));
       });
     });
 

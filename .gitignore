@@ -5,3 +5,5 @@ cypress/videos/
 cypress/downloads/
 *.log
 cypress/reports-output/
+# Device tokens from "Trust this device" logins (cypress/support/loginOtp.js)
+cypress/.auth/
