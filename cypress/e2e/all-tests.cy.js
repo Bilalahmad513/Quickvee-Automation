@@ -9,6 +9,9 @@
 // create data - products, a category and storefront orders - for stores
 // that must only be read.
 //
+// Data-creating tests run first, report checks after - so the reports' "Today"
+// also covers the orders this run just placed.
+//
 // purchase-order/purchase-order-creation.cy.js is a WRITE (CUD) suite that
 // only runs on test.quickvee.us, so it is never required here (this file
 // runs against quickvee.com) - run it on its own: npm run test:purchase-order.
@@ -22,7 +25,10 @@ if (!readOnly) {
   require("./Orders/storefront-search.cy.js");
   require("./Orders/new-product-order.cy.js");
 }
-// Read-only reconciliation suites (safe on quickvee.com): restored to
-// cypress/e2e/reports/ with their helpers in cypress/reports/.
+// Read-only reconciliation / export suites (safe on quickvee.com).
 require("./reports/report-reconciliation.cy.js");
 require("./reports/category-reconciliation.cy.js");
+require("./reports/order-count-reconciliation.cy.js");
+require("./reports/item-sold-export.cy.js");
+require("./reports/item-sold-filters.cy.js");
+require("./reports/category-sold-export.cy.js");

@@ -6,12 +6,7 @@ const SIZE_VALUE_POOL = ["Small", "Medium", "Large", "X-Large", "X-Small"];
 
 describe("Add Product", () => {
   beforeEach(() => {
-    cy.loginAndEnterStore(
-      Cypress.env("storeName"),
-      Cypress.env("username"),
-      Cypress.env("password"),
-      Cypress.env("storeUnderTest")
-    );
+    cy.enterDataStore();
     productsPage.visit();
   });
 

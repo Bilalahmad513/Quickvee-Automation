@@ -1,4 +1,7 @@
+const fs = require("fs");
+const path = require("path");
 const { defineConfig } = require("cypress");
+const { findExportEmail } = require("./cypress/support/exportEmail");
 
 module.exports = defineConfig({
   e2e: {
@@ -11,11 +14,13 @@ module.exports = defineConfig({
     // passed `cypress run` tests can still be reviewed afterward by watching
     // the recording, not just by reading screenshots (only taken on failure).
     video: true,
-    // A failed test is re-run up to twice (in both `cypress run` and
-    // `cypress open`) before counting as failed - this machine's slow,
-    // low-memory page loads regularly fail one attempt and pass the next with
-    // no code change.
-    retries: { runMode: 2, openMode: 2 },
+    // A failed test is run once more before it counts as failed (user, 5 Nov
+    // 2026) - e.g. the Orders page calendar that sometimes shuts mid-pick in
+    // the interactive runner. Was 0 (3 Nov) and before that 2. The report
+    // specs start each attempt with an empty list, so their HTML report only
+    // shows the last attempt. An emailed export test that's re-run sends
+    // another export email.
+    retries: { runMode: 1, openMode: 1 },
     setupNodeEvents(on, config) {
       on("task", {
         log(message) {
@@ -51,6 +56,24 @@ module.exports = defineConfig({
             .sort((a, b) => b.mtime - a.mtime)[0];
           if (!newest) return null;
           return { name: newest.file, content: fs.readFileSync(path.join(config.downloadsFolder, newest.file), "utf8") };
+        },
+        // Removes a file from the downloads folder (if it's there), so an
+        // export test reads the file its own click downloaded - not one left
+        // from an earlier run (`cypress open` keeps old downloads).
+        deleteDownload(fileName) {
+          fs.rmSync(path.join(config.downloadsFolder, fileName), { force: true });
+          return null;
+        },
+        // Long-range exports are emailed instead of downloaded ("Your export
+        // has been queued"). This waits for that email in the Gmail inbox the
+        // exports go to (exportEmailUser / exportEmailAppPassword in
+        // cypress.env.json) and yields its "Download Report" link and Rows.
+        findExportEmail(options) {
+          return findExportEmail({
+            ...options,
+            user: config.env.exportEmailUser,
+            appPassword: config.env.exportEmailAppPassword,
+          });
         },
       });
 

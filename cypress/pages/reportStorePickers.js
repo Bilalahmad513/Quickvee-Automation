@@ -12,10 +12,15 @@ function storesFilterTrigger() {
 // Ticks "All Stores" (only if it isn't ticked already - clicking it again
 // would untick every store), closes the menu and runs the report with
 // "Search".
+//
+// In all three pickers the menu can open before its items have loaded -
+// confirmed live (one attempt per test): the Stores menu was there but its
+// "All Stores" item took longer than the default 4s. So the item lookup
+// gets the same 15s as the menu.
 function selectAllInStoresFilter() {
   storesFilterTrigger().click();
   cy.get('[data-testid="multi-location-menu"]', { timeout: 15000 })
-    .contains('li[role="menuitem"]', /^All Stores$/)
+    .contains('li[role="menuitem"]', /^All Stores$/, { timeout: 15000 })
     .then(($item) => {
       if (!$item.find(".Mui-checked").length) cy.wrap($item).click();
     });
@@ -37,7 +42,7 @@ function outletDropDownTrigger() {
 function selectAllInOutletDropDown() {
   outletDropDownTrigger().click();
   cy.get(".qv-multi-select__menu:visible", { timeout: 15000 })
-    .contains('li[role="menuitem"]', /^All$/)
+    .contains('li[role="menuitem"]', /^All$/, { timeout: 15000 })
     .then(($item) => {
       if (!$item.find(".Mui-checked").length) cy.wrap($item).click();
     });
@@ -54,11 +59,25 @@ function selectAllInOutletDropDown() {
 function selectAllInSelectAllPopover(trigger) {
   trigger().click();
   cy.get('[role="dialog"]', { timeout: 15000 })
-    .contains("button", /^(Select|Deselect) All$/)
+    .contains("button", /^(Select|Deselect) All$/, { timeout: 15000 })
     .then(($button) => {
       if ($button.text() === "Deselect All") cy.wrap($button).click();
     });
   cy.get('[role="dialog"]').contains("button", /^Select All$/).click();
+  return cy.get("body").type("{esc}");
+}
+
+// Same popover, leaving only the store the session is in: "Deselect All"
+// keeps the current store (confirmed live on the Item Sold and Category Sold
+// reports - the page then asked for Store B alone), so no store is clicked
+// by name.
+function selectCurrentStoreInSelectAllPopover(trigger) {
+  trigger().click();
+  cy.get('[role="dialog"]', { timeout: 15000 })
+    .contains("button", /^(Select|Deselect) All$/, { timeout: 15000 })
+    .then(($button) => {
+      if ($button.text() === "Deselect All") cy.wrap($button).click();
+    });
   return cy.get("body").type("{esc}");
 }
 
@@ -68,4 +87,5 @@ module.exports = {
   outletDropDownTrigger,
   selectAllInOutletDropDown,
   selectAllInSelectAllPopover,
+  selectCurrentStoreInSelectAllPopover,
 };

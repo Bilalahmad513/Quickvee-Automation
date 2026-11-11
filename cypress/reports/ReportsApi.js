@@ -79,18 +79,23 @@ class ReportsApi {
   // is currently inside) and copies the auth + store id from that request.
   // `storeIds` are the stores every report is asked for - just this one;
   // a test can swap in several (e.g. all of the account's stores).
-  captureContext() {
-    cy.intercept("POST", `${REPORTS_API}/dashboard`).as("reportsContext");
-    cy.visit("/merchants/dashboard");
-    return cy.wait("@reportsContext", { timeout: 30000 }).then(({ request }) => {
-      const fields = parseMultipart(request.body, request.headers["content-type"]);
-      return {
-        authorization: request.headers.authorization,
-        merchantId: fields.merchant_id,
-        storeIds: [fields.merchant_id],
-        loginFields: Cypress._.pick(fields, LOGIN_FIELDS),
-      };
-    });
+  //
+  // With `merchantId` (the store just entered), only a call for that store
+  // counts: confirmed live that right after switching stores the dashboard
+  // can first make a call for the store it was in before - taking that one
+  // checked every report for the previous store under the new store's name.
+  captureContext(merchantId) {
+    return this.reportCallAfter(
+      "dashboard",
+      () => cy.visit("/merchants/dashboard"),
+      (fields) => !merchantId || fields.merchant_id === merchantId,
+      merchantId ? `store ${merchantId}` : "the current store"
+    ).then(({ fields, authorization }) => ({
+      authorization,
+      merchantId: fields.merchant_id,
+      storeIds: [fields.merchant_id],
+      loginFields: Cypress._.pick(fields, LOGIN_FIELDS),
+    }));
   }
 
   // The {id, name, city, state} entry of each of context.storeIds, from the
@@ -342,7 +347,9 @@ class ReportsApi {
   // Evaluates each formula check (see formulaChecks.js) against responses
   // already in hand ({ reportName: body }): computes the expected value from
   // the report's own inputs and compares it with the value the report shows,
-  // both at 2 decimals. Returns one row per check.
+  // both at 2 decimals - or within the check's optional `tolerance` (in
+  // dollars), which the row then says, same as for a mapping. Returns one
+  // row per check.
   evaluateFormulas(bodies, range, checks) {
     return checks.map((check) => {
       const body = bodies[check.report];
@@ -357,7 +364,9 @@ class ReportsApi {
         : toAmount(check.compute(Cypress._.fromPairs(inputs.map((i) => [i.name, i.amount]))));
       const actualRaw = Cypress._.get(body, check.actual.path);
       const actual = toAmount(actualRaw);
-      const match = expected !== null && actual !== null && expected === actual;
+      // Compared in whole cents, like reconcile().
+      const gapCents = expected !== null && actual !== null ? Math.round(Math.abs(expected - actual) * 100) : null;
+      const match = gapCents !== null && gapCents <= Math.round((check.tolerance || 0) * 100);
 
       return {
         kind: "formula",
@@ -369,6 +378,8 @@ class ReportsApi {
         expected,
         actual: { label: check.actual.label, raw: actualRaw, amount: actual },
         match,
+        withinTolerance: match && gapCents > 0,
+        tolerance: check.tolerance,
       };
     });
   }
@@ -386,12 +397,36 @@ class ReportsApi {
   // up instead of the new one. A few non-matching calls are still skipped,
   // since one action can fire more than one call.
   reportCallAfter(endpoint, trigger, isWanted, describe) {
+    return this.callAfter(`${REPORTS_API}/${endpoint}`, trigger, isWanted, `${endpoint} call for ${describe}`);
+  }
+
+  // Same as reportCallAfter, for an API outside reports-api (e.g. the Orders
+  // page's order_list on api-node). `attempts` is how many non-matching
+  // calls may be skipped - raise it for a trigger that clicks several
+  // controls, each firing its own call.
+  callAfter(url, trigger, isWanted, describe, attempts = 5) {
     reportCallCounter += 1;
     const alias = `reportCall${reportCallCounter}`;
-    const { hostname, pathname } = new URL(`${REPORTS_API}/${endpoint}`);
+    const { hostname, pathname } = new URL(url);
     cy.intercept({ method: "POST", hostname, pathname }).as(alias);
     trigger();
-    return this.waitForMatchingCall(alias, isWanted, `${endpoint} call for ${describe}`, 5);
+    return this.waitForMatchingCall(alias, isWanted, describe, attempts);
+  }
+
+  // Sends a multipart call the page made (as yielded by callAfter) again,
+  // with `overrides` replacing some of its fields - e.g. to get every row of
+  // a list the page only asked one page of. Yields the response body.
+  resend(url, call, overrides) {
+    const { boundary, body } = buildMultipart({ ...call.fields, ...overrides });
+    return cy
+      .request({
+        method: "POST",
+        timeout: REQUEST_TIMEOUT,
+        url,
+        headers: { Authorization: call.authorization, "Content-Type": `multipart/form-data; boundary=${boundary}` },
+        body,
+      })
+      .then((res) => res.body);
   }
 
   // The dashboard page's own call for whichever view `trigger` lands on.
@@ -403,9 +438,11 @@ class ReportsApi {
     return cy.wait(`@${alias}`, { timeout: 30000 }).then(({ request, response }) => {
       const fields =
         typeof request.body === "object" ? request.body : parseMultipart(request.body, request.headers["content-type"]);
-      if (isWanted(fields, response.body)) return { fields, body: response.body };
+      if (isWanted(fields, response.body)) {
+        return { fields, body: response.body, authorization: request.headers.authorization };
+      }
       if (attemptsLeft > 1) return this.waitForMatchingCall(alias, isWanted, describe, attemptsLeft - 1);
-      const sent = Cypress._.pick(fields, ["activeType", "start_date", "end_date", "outlet_ids"]);
+      const sent = Cypress._.pick(fields, ["activeType", "start_date", "end_date", "outlet_ids", "orderStatus"]);
       throw new Error(`No ${describe} (last one sent ${JSON.stringify(sent)}).`);
     });
   }

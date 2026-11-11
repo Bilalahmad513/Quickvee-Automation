@@ -50,4 +50,34 @@ module.exports = [
       { label: "Category Sold Discounts", report: "categorySold", path: "total_discounts" },
     ],
   },
+  // Sales by Category shows it in its Total Summary, the Category Sold Report
+  // in its summary.
+  {
+    label: "Category Cost",
+    format: "money",
+    values: [
+      { label: "Sales by Category Cost", report: "salesByCategory", path: "total_cost" },
+      { label: "Category Sold Cost", report: "categorySold", path: "total_cost" },
+    ],
+  },
+  // Labelled "Gross Profit" in the Sales by Category Total Summary, "Profit"
+  // on the Category Sold Report.
+  {
+    label: "Category Profit",
+    format: "money",
+    values: [
+      { label: "Sales by Category Gross Profit", report: "salesByCategory", path: "total_profit" },
+      { label: "Category Sold Profit", report: "categorySold", path: "total_profit" },
+    ],
+  },
+  // Labelled "Gross Margin %" in the Sales by Category Total Summary,
+  // "Margin" on the Category Sold Report.
+  {
+    label: "Category Margin",
+    format: "percent",
+    values: [
+      { label: "Sales by Category Gross Margin %", report: "salesByCategory", path: "total_margin" },
+      { label: "Category Sold Margin", report: "categorySold", path: "total_margin" },
+    ],
+  },
 ];

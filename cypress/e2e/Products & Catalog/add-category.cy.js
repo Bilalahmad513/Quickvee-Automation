@@ -5,12 +5,7 @@ const { randomProductName, randomPricePair } = require("../../support/testData")
 
 describe("Add Category", () => {
   it("creates a new category and uses it on a new simple product", () => {
-    cy.loginAndEnterStore(
-      Cypress.env("storeName"),
-      Cypress.env("username"),
-      Cypress.env("password"),
-      Cypress.env("storeUnderTest")
-    );
+    cy.enterDataStore();
 
     categoriesPage.visit();
     categoriesPage.clickAddCategory();

@@ -38,8 +38,11 @@ function rowValues(row) {
 // e.g. "Today (2026-10-23) · Net Sales → Dashboard Total Sales Revenue: $303.00 | Sales Summary Net Sales: $303.00 | ... ✔ MATCH"
 // On a mismatch, the values that differ from the rest are marked with ⚠.
 // "✔ MATCH", "✔ MATCH (within ±$0.05)" for a match only within a mapping's
-// tolerance, or "✘ MISMATCH".
+// or formula check's tolerance, or "✘ MISMATCH".
+// A row with `warning` (a known Quickvee problem the check works around)
+// doesn't fail the test - it's shown as "⚠ WARNING: <why>" instead.
 function resultText(row) {
+  if (row.warning) return `⚠ WARNING: ${row.warning}`;
   if (!row.match) return "✘ MISMATCH";
   return row.withinTolerance ? `✔ MATCH (within ±$${row.tolerance.toFixed(2)})` : "✔ MATCH";
 }
@@ -62,6 +65,11 @@ const LOG_STYLES = `
   .command-name-match .command-method, .command-name-match .command-message { color: #7ee787 !important; }
   .command-name-mismatch .command-wrapper { background: rgba(248, 81, 73, 0.25) !important; border-left: 4px solid #f85149 !important; }
   .command-name-mismatch .command-method, .command-name-mismatch .command-message { color: #ff7b72 !important; }
+  .command-name-warning .command-wrapper { background: rgba(210, 153, 34, 0.25) !important; border-left: 4px solid #d29922 !important; }
+  .command-name-warning .command-method, .command-name-warning .command-message { color: #e3b341 !important; }
+  li.qv-mismatch-test > .collapsible > .runnable-wrapper { background: rgba(248, 81, 73, 0.25) !important; border-left: 4px solid #f85149 !important; }
+  li.qv-mismatch-test > .collapsible > .runnable-wrapper .runnable-title { color: #ff7b72 !important; }
+  li.qv-mismatch-test > .collapsible > .runnable-wrapper .runnable-title::after { content: "  ✘ MISMATCH (not failed)"; font-weight: 600; }
 `;
 
 function injectLogStyles() {
@@ -75,13 +83,68 @@ function injectLogStyles() {
 
 function logRow(row) {
   Cypress.log({
-    name: row.match ? "match" : "mismatch",
+    name: row.warning ? "warning" : row.match ? "match" : "mismatch",
     displayName: resultText(row),
     message:
       `[${row.store}] **${rangeTitle(row.range)}** (${rangeDates(row.range)}) · **${row.label}** → ` +
       rowValues(row).map((v) => formatValue(v, row.format, true)).join(" | "),
     consoleProps: () => ({ store: row.store, range: row.range, check: row.label, values: rowValues(row) }),
   });
+}
+
+// `failOnMismatch` in cypress.env.json: false = a mismatch is only shown
+// (red in the command log and the HTML report) and the test still passes;
+// true, or not set = the test fails on any mismatch. Errors (a page that
+// doesn't load, a button that isn't found) fail the test either way.
+function failOnMismatch() {
+  const setting = Cypress.env("failOnMismatch");
+  return setting !== false && setting !== "false";
+}
+
+// With failOnMismatch false, a test that had mismatches still passes, but
+// its line in Cypress's test list (left panel, li.test.runnable - confirmed
+// in the runner's DOM) is painted red with "✘ MISMATCH (not failed)". The
+// runner redraws that list as tests run (and resets its classes), so a
+// watcher keeps re-applying the mark to every title in the set. A test that
+// later runs clean (re-run, retry) is taken out of the set.
+function markTestInList(title, hasMismatches) {
+  const top = window.top;
+  const doc = top.document;
+  top.__qvMismatchTests = top.__qvMismatchTests || new Set();
+  if (hasMismatches) top.__qvMismatchTests.add(title);
+  else top.__qvMismatchTests.delete(title);
+
+  const paint = () =>
+    doc.querySelectorAll("li.test.runnable").forEach((li) => {
+      const name = li.querySelector(".runnable-title > span");
+      const marked = Boolean(name) && top.__qvMismatchTests.has(name.textContent);
+      // Only touch the class when it's wrong, so the watcher doesn't set
+      // itself off.
+      if (li.classList.contains("qv-mismatch-test") !== marked) li.classList.toggle("qv-mismatch-test", marked);
+    });
+  if (!top.__qvMismatchWatcher) {
+    top.__qvMismatchWatcher = new top.MutationObserver(paint);
+    top.__qvMismatchWatcher.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  }
+  paint();
+}
+
+// The end of every report test: `mismatches` are the rows that didn't
+// match. Fails the test with their lines - or, with failOnMismatch false,
+// only logs how many there were and paints the test red in the test list.
+function assertNoMismatches(mismatches) {
+  const lines = "\n" + mismatches.map((m) => m.line).join("\n");
+  markTestInList(Cypress.currentTest.title, mismatches.length > 0 && !failOnMismatch());
+  if (mismatches.length && !failOnMismatch()) {
+    Cypress.log({
+      name: "mismatch",
+      displayName: "✘ NOT FAILED",
+      message: `${mismatches.length} mismatch(es) - failOnMismatch is false, so the test passes. See the red rows above.`,
+    });
+    cy.task("log", `${mismatches.length} mismatch(es) not failed (failOnMismatch: false):${lines}`, { log: false });
+    return;
+  }
+  expect(mismatches, lines).to.be.empty;
 }
 
 function escapeHtml(value) {
@@ -94,10 +157,11 @@ function escapeHtml(value) {
 
 function buildHtml(rows, generatedAt, title = "Report Reconciliation") {
   const mismatches = rows.filter((r) => !r.match).length;
+  const warnings = rows.filter((r) => r.warning).length;
   const tableRows = rows
     .map(
       (r) => `
-      <tr class="${r.match ? "match" : "mismatch"}">
+      <tr class="${r.warning ? "warning" : r.match ? "match" : "mismatch"}">
         <td>${escapeHtml(r.store)}</td>
         <td>${escapeHtml(rangeTitle(r.range))}</td>
         <td>${escapeHtml(rangeDates(r.range))}</td>
@@ -138,13 +202,15 @@ function buildHtml(rows, generatedAt, title = "Report Reconciliation") {
   tr.match .result { color: #166534; font-weight: 600; }
   tr.mismatch { background: #fef2f2; }
   tr.mismatch .result { color: #991b1b; font-weight: 600; }
+  tr.warning { background: #fefce8; }
+  tr.warning .result { color: #854d0e; font-weight: 600; }
 </style>
 </head>
 <body>
   <h1>${escapeHtml(title)}</h1>
   <div class="meta">Generated ${escapeHtml(generatedAt)}</div>
   <div class="summary ${mismatches ? "bad" : "ok"}">
-    ${rows.length} comparisons, ${rows.length - mismatches} matched, ${mismatches} mismatched
+    ${rows.length} comparisons, ${rows.length - mismatches - warnings} matched, ${mismatches} mismatched${warnings ? `, ${warnings} warnings` : ""}
   </div>
   <table>
     <thead>
@@ -158,4 +224,4 @@ function buildHtml(rows, generatedAt, title = "Report Reconciliation") {
 `;
 }
 
-module.exports = { formatLine, buildHtml, injectLogStyles, logRow };
+module.exports = { formatLine, buildHtml, injectLogStyles, logRow, assertNoMismatches };

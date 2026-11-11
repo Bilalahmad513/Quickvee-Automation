@@ -5,12 +5,7 @@ const ordersPage = require("../../pages/OrdersPage");
 
 describe("Storefront Search", () => {
   it("searches a random product, adds it to cart, checks out with customer login, places the order, confirms it in the admin Orders module, and marks it picked up", () => {
-    cy.loginAndEnterStore(
-      Cypress.env("storeName"),
-      Cypress.env("username"),
-      Cypress.env("password"),
-      Cypress.env("storeUnderTest")
-    );
+    cy.enterDataStore();
     // cy.session() only restores cookies/localStorage - it leaves the browser
     // on about:blank rather than wherever enterStore() last navigated to, so
     // the store's admin dashboard (where "View Online Store" lives) has to be
@@ -56,12 +51,7 @@ describe("Storefront Search", () => {
           // restore (same key as the call above) - cookies get swapped back
           // instantly, no login form involved, even though the storefront
           // login in between cleared them via ensureCustomerLoggedOut().
-          cy.loginAndEnterStore(
-            Cypress.env("storeName"),
-            Cypress.env("username"),
-            Cypress.env("password"),
-            Cypress.env("storeUnderTest")
-          );
+          cy.enterDataStore();
 
           ordersPage.visit();
           ordersPage.selectOnlineOrders();

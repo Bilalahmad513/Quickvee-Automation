@@ -3,18 +3,16 @@ const detailedCategoryReportPage = require("../../pages/DetailedCategoryReportPa
 const categorySoldReportPage = require("../../pages/CategorySoldReportPage");
 const reportsApi = require("../../reports/ReportsApi");
 const categoryMappings = require("../../reports/categoryMappings");
-const { compareCategorySoldCsv, normalizeCsv } = require("../../reports/categorySoldCsvChecks");
-const { getDateRanges } = require("../../reports/reconciliationConfig");
-const { buildHtml, injectLogStyles, logRow, formatLine } = require("../../reports/reconciliationReport");
+const { getStores, getAllStoresStores, getDateRanges } = require("../../reports/reconciliationConfig");
+const { buildHtml, injectLogStyles, logRow, formatLine, assertNoMismatches } = require("../../reports/reconciliationReport");
 
-// The category reports are checked for this one store only - not the
-// reportStores list the other reconciliation uses. "All stores" means every
-// store this store's account can pick in the reports' own store pickers.
-// Override with --env categoryStore=<store> (or in cypress.env.json).
-const STORE = Cypress.env("categoryStore") || "storeb";
-
-// "A,B,C" -> ["A", "B", "C"]; nothing -> [].
-const idsOf = (field) => (field || "").split(",").filter(Boolean);
+// Stores the category reports are checked for, same lists as the other
+// reconciliation specs (cypress.env.json, see reconciliationConfig.js):
+// reportStores one at a time, reportAllStoresStores with every store on the
+// account selected in the reports' own store pickers. Report checks only
+// read data, so any store can be listed.
+const STORES = getStores();
+const ALL_STORES_STORES = getAllStoresStores();
 
 // Each category report page, how to select every store in its picker, and
 // the API call that selection makes - the store ids it sends are what the
@@ -66,108 +64,51 @@ describe("Category Report Reconciliation", () => {
     cy.task("log", `HTML report written to ${file}`);
   });
 
-  // Logs and keeps each result row under `storeLabel`.
-  function record(testTitle, storeLabel, results) {
-    results.forEach((result) => {
-      const row = { ...result, store: storeLabel, line: `[${storeLabel}] ${formatLine(result)}` };
-      logRow(row);
-      cy.task("log", row.line, { log: false });
-      rowsByTest[testTitle].push(row);
-    });
-  }
-
-  function assertAllMatched(testTitle) {
-    cy.then(() => {
-      const rows = rowsByTest[testTitle];
-      const mismatches = rows.filter((r) => !r.match);
-      expect(rows, "checks run").to.not.be.empty;
-      expect(mismatches, "\n" + mismatches.map((m) => m.line).join("\n")).to.be.empty;
-    });
-  }
-
   // Compares the category reports for every date filter, asked for
   // context.storeIds; `storeLabel` names that selection in logs and the
   // HTML report.
   function reconcileAllRanges(testTitle, context, storeLabel) {
     getDateRanges().forEach((range) => {
-      reportsApi.reconcile(context, range, categoryMappings).then((results) => record(testTitle, storeLabel, results));
+      reportsApi.reconcile(context, range, categoryMappings).then((results) => {
+        results.forEach((result) => {
+          const row = { ...result, store: storeLabel, line: `[${storeLabel}] ${formatLine(result)}` };
+          logRow(row);
+          cy.task("log", row.line, { log: false });
+          rowsByTest[testTitle].push(row);
+        });
+      });
     });
-    assertAllMatched(testTitle);
+
+    cy.then(() => {
+      const rows = rowsByTest[testTitle];
+      const mismatches = rows.filter((r) => !r.match);
+      expect(rows, "checks run").to.not.be.empty;
+      assertNoMismatches(mismatches);
+    });
   }
 
-  // Enters STORE and yields its reports context plus its name (from the
-  // reports' own store list), which logs and the HTML report show instead
-  // of the store id. The name is looked up on a copy of the context, since
-  // ensureLocations() keeps its answer on the context it's given - which
-  // would otherwise carry this one store's list into the all-stores runs.
-  function enterStore() {
-    cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), STORE);
-    return reportsApi.captureContext().then((context) =>
-      reportsApi.ensureLocations({ ...context }).then(([location]) => ({ context, storeName: (location && location.name) || STORE }))
-    );
-  }
-
-  const allStoresLabel = (storeName, storeIds) => `${storeName} + all stores (${storeIds.length})`;
-
-  it(`category report values match for store: ${STORE} (single store)`, function () {
-    enterStore().then(({ context, storeName }) => reconcileAllRanges(this.test.title, context, storeName));
+  STORES.forEach((store) => {
+    it(`category report values match for store: ${store} (single store)`, function () {
+      cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), store);
+      reportsApi.captureContext().then((context) => reconcileAllRanges(this.test.title, context, store));
+    });
   });
 
   // Selects every store in each report page's own picker, takes the store
   // ids each page then sent, checks all three pages agree on them, and
   // compares the reports for those stores together.
-  it(`category report values match for store: ${STORE} with all stores selected`, function () {
-    const title = this.test.title;
+  ALL_STORES_STORES.forEach((store) => {
+    it(`category report values match for store: ${store} with all stores selected`, function () {
+      const title = this.test.title;
 
-    enterStore().then(({ context, storeName }) => {
+      cy.loginAndEnterStore(Cypress.env("storeName"), Cypress.env("username"), Cypress.env("password"), store);
+
       reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
-        expect(storeIds, `all stores include ${STORE}'s own id`).to.include(context.merchantId);
-        reconcileAllRanges(title, { ...context, storeIds }, allStoresLabel(storeName, storeIds));
+        reportsApi.captureContext().then((context) => {
+          expect(storeIds, `all stores include ${store}'s own id`).to.include(context.merchantId);
+          reconcileAllRanges(title, { ...context, storeIds }, `${store} + all stores (${storeIds.length})`);
+        });
       });
     });
-  });
-
-  // Clicks the Category Sold Report's own "Export CSV" (the page opens on
-  // today with every store selected), checks the downloaded file is exactly
-  // what the export API answered, then - asking the export API with the
-  // page's same fields - compares the CSV with the report's data for every
-  // date filter, for this store alone and for all stores: every category,
-  // column by column, and the column sums with the report's totals.
-  it(`Category Sold Report Export CSV matches the report for store: ${STORE}`, function () {
-    const title = this.test.title;
-
-    enterStore().then(({ context, storeName }) => {
-      categorySoldReportPage.visit();
-      cy.task("clearDownloads");
-
-      reportsApi
-        .reportCallAfter("category_sold_report_consolidated", () => categorySoldReportPage.exportCsv(), () => true, "Export CSV")
-        .then(({ fields, body }) => {
-          const storeIds = idsOf(fields.outlet_ids);
-          const file = `cypress/downloads/category_sold_report_${fields.start_date}_to_${fields.end_date}.csv`;
-          cy.readFile(file, { timeout: 30000 }).then((downloaded) => {
-            expect(normalizeCsv(downloaded), `downloaded ${file} = Export CSV API answer`).to.equal(normalizeCsv(body));
-          });
-
-          const pageFields = Cypress._.omit(fields, ["outlet_ids", "start_date", "end_date"]);
-          const selections = [
-            { label: storeName, storeIds: [context.merchantId] },
-            { label: allStoresLabel(storeName, storeIds), storeIds },
-          ];
-
-          selections.forEach((selection) => {
-            const selectionContext = { ...context, storeIds: selection.storeIds };
-            getDateRanges().forEach((range) => {
-              reportsApi.categorySoldExportCsv(selectionContext, range, pageFields).then((csv) => {
-                reportsApi.fetchAll(selectionContext, range, ["categorySoldAllRows"]).then((bodies) => {
-                  record(title, selection.label, compareCategorySoldCsv(csv, bodies.categorySoldAllRows, range));
-                });
-              });
-            });
-          });
-        });
-    });
-
-    assertAllMatched(title);
   });
 });

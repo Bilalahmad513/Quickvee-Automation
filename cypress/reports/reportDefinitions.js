@@ -50,6 +50,21 @@ module.exports = {
     ok: (body) => body.status === true,
   },
 
+  // Sales by Order Type page (new-sale-report/new-sales-by-order-type). The
+  // fields are what the page sends (confirmed live); data.current has one
+  // row per order type (In-Store / Online pickup / delivery).
+  salesByOrderType: {
+    format: "multipart",
+    endpoint: "order_type_new_fact",
+    fields: () => ({ date_filter: "custom", order_env: "9" }),
+    ok: (body) => body.success === true,
+    reportedRange: (body) => ({
+      startDate: body.current_period.start_date.slice(0, 10),
+      endDate: body.current_period.end_date.slice(0, 10),
+    }),
+    reportedLocations: (body) => body.merchant_ids,
+  },
+
   hourlySales: {
     format: "multipart",
     endpoint: "hourly_sales_fact",
