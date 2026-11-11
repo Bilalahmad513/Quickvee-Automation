@@ -137,6 +137,8 @@ describe("Item Sold Report Export", () => {
       .then(({ fields, body }) => {
         itemCount = Number(body.total_items);
         storeIds = idsOf(fields.outlet_ids);
+        // Every store selected: the label names them (see ReportsApi.storesLabel).
+        if (storeIds.length > 1) reportsApi.storesLabel(storeIds).then((label) => (storeLabel = label));
       });
 
     // With nothing sold the page shows "No items sold in this window" and no
@@ -281,7 +283,7 @@ describe("Item Sold Report Export", () => {
             return storeIds.length > 1 && storeIds.includes(fields.merchant_id);
           }
         );
-        cy.then(() => cy.task("log", `[${store} + all stores] ${rangeLabel}: ${storeIds.join(", ")}`, { log: false }));
+        cy.then(() => reportsApi.storesLabel(storeIds)).then((label) => cy.task("log", `[${label}] ${rangeLabel}: ${storeIds.join(", ")}`, { log: false }));
       });
     });
   });

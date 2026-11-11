@@ -146,6 +146,8 @@ describe("Category Sold Report Export", () => {
       .then(({ fields, body }) => {
         pageApi = body;
         storeIds = idsOf(fields.outlet_ids);
+        // Every store selected: the label names them (see ReportsApi.storesLabel).
+        if (storeIds.length > 1) reportsApi.storesLabel(storeIds).then((label) => (storeLabel = label));
       });
     cy.then(() => {
       cy.contains("p", /^Subtotal$/)

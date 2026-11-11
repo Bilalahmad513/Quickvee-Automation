@@ -369,6 +369,8 @@ describe("Item Sold Report Filters", () => {
     ).then(({ call, items }) => {
       data.allRows = items;
       data.storeIds = idsOf(call.fields.outlet_ids);
+      // Names the selected stores (see ReportsApi.storesLabel).
+      reportsApi.storesLabel(data.storeIds).then((label) => (data.storeLabel = label));
       data.storeIds.forEach((id) =>
         fetchEveryRow(call, { outlet_ids: id }).then((rows) => {
           data.perStore[id] = rows;
@@ -396,7 +398,7 @@ describe("Item Sold Report Filters", () => {
       data.rowsByKey = Cypress._.groupBy(data.allRows, keyOf);
       cy.task(
         "log",
-        `[${storeLabel}] stores ${data.storeIds.join(", ")}: ${data.allRows.length} rows, ` +
+        `[${data.storeLabel}] stores ${data.storeIds.join(", ")}: ${data.allRows.length} rows, ` +
           `${[...data.expected.values()].filter((e) => e.stores.size > 1).length} UPCs sold in more than one store`,
         { log: false }
       );
@@ -416,7 +418,7 @@ describe("Item Sold Report Filters", () => {
     it(`Item Sold Report with all stores selected = each store's items grouped by UPC for: ${store} (${RANGE_LABEL})`, function () {
       const title = this.test.title;
 
-      loadAllStores(store, storeLabel).then(({ allRows, totals, expected, rowsByKey }) => {
+      loadAllStores(store, storeLabel).then(({ allRows, totals, expected, rowsByKey, storeLabel }) => {
         const repeated = Object.keys(rowsByKey).filter((k) => rowsByKey[k].length > 1).map((k) => rowsByKey[k][0]);
         const missing = [...expected.values()].filter((e) => !rowsByKey[e.key]);
         const extra = allRows.filter((r) => !expected.has(keyOf(r)));
@@ -471,7 +473,7 @@ describe("Item Sold Report Filters", () => {
       const title = this.test.title;
       const test = this;
 
-      loadAllStores(store, storeLabel).then(({ expected, rowsByKey }) => {
+      loadAllStores(store, storeLabel).then(({ expected, rowsByKey, storeLabel }) => {
         const groupsByName = {};
         expected.forEach((e) =>
           e.names.forEach((name) => {
@@ -515,7 +517,7 @@ describe("Item Sold Report Filters", () => {
       const title = this.test.title;
       const test = this;
 
-      loadAllStores(store, storeLabel).then(({ expected, rowsByKey }) => {
+      loadAllStores(store, storeLabel).then(({ expected, rowsByKey, storeLabel }) => {
         const shared = [...expected.values()].filter((e) => e.upc && e.names.size > 1);
         if (!shared.length) {
           cy.task("log", `[${storeLabel}] no UPC under more than one name in ${RANGE_LABEL} - skipped`, { log: false });

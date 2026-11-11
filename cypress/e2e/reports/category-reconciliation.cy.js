@@ -106,7 +106,7 @@ describe("Category Report Reconciliation", () => {
       reportsApi.storeIdsWithAllSelected(ALL_STORES_PAGES).then((storeIds) => {
         reportsApi.captureContext().then((context) => {
           expect(storeIds, `all stores include ${store}'s own id`).to.include(context.merchantId);
-          reconcileAllRanges(title, { ...context, storeIds }, `${store} + all stores (${storeIds.length})`);
+          reportsApi.storesLabel(storeIds).then((label) => reconcileAllRanges(title, { ...context, storeIds }, label));
         });
       });
     });
