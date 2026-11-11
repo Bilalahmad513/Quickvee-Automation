@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { defineConfig } = require("cypress");
 const { findExportEmail } = require("./cypress/support/exportEmail");
+const { otpMailboxMark, findLoginOtp, readDeviceToken, saveDeviceToken } = require("./cypress/support/loginOtp");
 
 module.exports = defineConfig({
   e2e: {
@@ -44,6 +45,21 @@ module.exports = defineConfig({
             user: config.env.exportEmailUser,
             appPassword: config.env.exportEmailAppPassword,
           });
+        },
+        // Merchant login's one-time password (see cypress/support/loginOtp.js
+        // and LoginPage.login): the OTP inbox is otpEmailUser /
+        // otpEmailAppPassword in cypress.env.json.
+        otpMailboxMark() {
+          return otpMailboxMark({ user: config.env.otpEmailUser, appPassword: config.env.otpEmailAppPassword });
+        },
+        findLoginOtp({ fromUid }) {
+          return findLoginOtp({ user: config.env.otpEmailUser, appPassword: config.env.otpEmailAppPassword, fromUid });
+        },
+        readDeviceToken(site) {
+          return readDeviceToken(site);
+        },
+        saveDeviceToken(entry) {
+          return saveDeviceToken(entry);
         },
       });
 

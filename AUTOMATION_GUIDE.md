@@ -124,6 +124,21 @@ module.exports = new LoginPage();
 - `login()` ek "combo" method hai jo poora flow (visit → teeno field bharna → submit) ek hi call mein kar deta hai.
 - File ke aakhir mein `module.exports = new LoginPage()` — **ek hi instance export hoti hai** (class nahi), taake har jagah `require(...)` karne par same object mile. Yeh pattern har page class mein dohraya gaya hai.
 
+#### One-time password (OTP) wala login (11 Nov 2026 se)
+
+Upar wala code purana roop hai. Ab login ke saath OTP bhi aata hai, aur `LoginPage.login()` ye sab khud karta hai:
+
+1. Store name, Username (ab login ka email address) aur Password bhar kar **Login**.
+2. Server OTP maange to form par "One-time password" box (`input[name="otp"]`, 6 digit) aata hai aur button **Verify & Sign In** ban jata hai. Code us mail par jata hai.
+3. Test us Gmail ko IMAP se padhta hai (`cypress/support/loginOtp.js`, tasks `otpMailboxMark` / `findLoginOtp`) aur Login click ke **baad** aayi Quickvee email se 6-digit code nikalta hai. Login se pehle inbox ka "agla UID" note hota hai, taake purana code kabhi na uthaye. Zyada se zyada 3 minute intezar.
+4. **Trust this device** tick karke code daalta hai aur **Verify & Sign In** dabata hai.
+5. Login ke baad server ka device token (`localStorage["qv_device_token"]`) `cypress/.auth/device-tokens.json` (gitignored, har site ka alag) mein save hota hai, aur agle login se pehle wapas laga diya jata hai. Isliye aam taur par **sirf pehle login par OTP** aata hai. Agli dafa server code nahi maangta to test seedha andar chala jata hai.
+
+- OTP ka Gmail export wali Gmail se alag hai: `otpEmailUser` / `otpEmailAppPassword` (us Gmail ka 16 harfon ka App Password) `cypress.env.json` mein.
+- OTP box na aaye (trusted device, ya test server jahan OTP na ho) to login pehle ki tarah chalta hai.
+- `login(storeName, username, password, { site })`: `site` na do to `baseUrl`. Test server ke liye `{ site: "https://admin-panel-test.quickvee.us" }`.
+- Device token hata kar dobara OTP wala raasta chalana ho to `cypress/.auth/device-tokens.json` delete kar dein.
+
 ### `cypress/pages/StoreDirectoryPage.js`
 
 "Users → Live Stores / Inactive Stores" wale section ke liye hai, aur `enterStore(storeName)` naam ka ek combo method bhi rakhta hai jo poora "search → fallback → open" flow ek hi call mein kar deta hai (yeh `cy.loginAndEnterStore()` custom command ke andar istemaal hota hai — section 3 mein tafseel).
@@ -1087,9 +1102,12 @@ module.exports = defineConfig({
     "reportAllStoresStores": ["storeb"],
     "exportEmailUser": "...@gmail.com",
     "exportEmailAppPassword": "...",
+    "otpEmailUser": "...@gmail.com",
+    "otpEmailAppPassword": "...",
     "failOnMismatch": false
   }
   ```
+  `otpEmailUser` / `otpEmailAppPassword`: login ka one-time password jis Gmail mein aata hai, aur us ka App Password (section 2, LoginPage). Export wali Gmail (`exportEmailUser`) alag account hai.
   Cypress yeh file khud-ba-khud load kar ke `Cypress.env(...)` mein merge kar deta hai — config file mein kuch badalna nahi parta. `cypress.env.json.example` sirf shape dikhane ke liye version-controlled hai (placeholder values ke saath).
   `customerEmail`/`customerPassword` baad mein add hue jab storefront-side checkout tests banay (customer apna alag login hai, admin se). `reportStores` aur `reportAllStoresStores` report reconciliation ke stores ki lists hain (section 5); store add ya remove karne ke liye sirf ye lists badlein, code nahi. `reportAllStoresStores` na ho to sirf storeb chalta hai.
   `dataStores` un stores ki list hai jahan tests data bana sakte hain (products, categories, orders). Data banane wale tests `storeUnderTest` mein jate hain, lekin sirf tab jab woh is list mein ho (`cy.enterDataStore()`, section 3). **Jis store mein data nahi banana, use `dataStores` mein na likhein**; usay sirf `reportStores` / `reportAllStoresStores` mein rakhein.
