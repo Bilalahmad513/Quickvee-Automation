@@ -22,6 +22,7 @@ cypress-automation/
     │   ├── store-view.cy.js
     │   ├── add-product.cy.js
     │   ├── add-category.cy.js
+    │   ├── edit-product.cy.js   → Apna banaya simple + variant product edit (naam, category, brand, tag, UPC, price)
     │   ├── storefront-search.cy.js
     │   ├── new-product-order.cy.js
     │   ├── reports/
@@ -334,12 +335,15 @@ Simple product ki pricing row left-to-right "Cost, Price, Compare-at price" hai,
 // A simple product saved with no stock quantity set defaults to 0 -
 // confirmed live that such a product never becomes searchable on the
 // storefront [...]
-fillAvailableToSell(min = 10, max = 100) {
+fillAvailableToSell(min = 1, max = 100) {
   const quantity = String(Cypress._.random(min, max));
-  return cy.contains("Available to sell").parent().find('input[placeholder="0"]').clear().type(quantity);
+  return cy.contains("Available to sell").parent().find('input[placeholder="0"]')
+    .clear().type(quantity).should("have.value", quantity);
 }
 ```
 Yeh method baad mein add hua (Masla 8 ki investigation ke dauran). "Available to sell" ka apna input bhi bare "0" placeholder share karta hai paas-waale Reorder fields ke saath, isliye label ke apne container tak scope kiya gaya hai.
+
+Har simple product jo tests banate hain (`add-product`, `new-product-order`, `add-category`) is method se **1 se 100 ke beech random stock** ke saath save hota hai — koi bhi 0 stock par nahi banta. `should("have.value", ...)` confirm karta hai ke number sach mein field mein likha gaya. Variant products ka stock `fillAllVariantAvailableToSell()` alag se bharta hai (10–100).
 
 ```js
 selectAttribute(attributeName) { /* "Choose attribute" -> search -> click button */ }
@@ -736,6 +740,30 @@ describe("Add Category", () => {
 ```
 Ek naya category banata hai, "Sync" click karta hai (taake category product-form ke picker mein turant searchable ho jaye — yeh case Masla 8 wale product-indexing masle se alag hai, yahan Sync waqai kaam karta hai), phir usi category ko ek naye product par istemaal karta hai.
 
+### `edit-product.cy.js`
+Do tests — har ek pehle **apna product khud banata hai** (pehle se maujood products ko kabhi nahi chhedta), phir Products list mein us ko search kar ke row ka chevron (˅) → **Edit product** kholta hai aur yeh badalta hai:
+
+| Field | Simple product | Variant product |
+|---|---|---|
+| Name | naya random naam | naya random naam |
+| Category | purani hata kar doosri random | same |
+| Brand / Tag | agar laga hai to purana hata kar doosra random | same |
+| UPC | naya unique UPC (`randomUpc()`) | **har variant** ka naya UPC |
+| Price | naya (Cost se zyada, purane se alag) | **har variant** ka naya price |
+| Cost | edit form par **locked/disabled** hai — sirf check hota hai ke locked hai aur value nahi badli | same |
+
+"Save changes" ke baad edit form dobara khol kar har nayi value check hoti hai (purani category/brand/tag ki chip ghayab), aur list mein naya naam (simple mein UPC aur price bhi) nazar aana chahiye. Har tabdeeli command log mein `edit` row ke tor par likhi jati hai (`Brand: tos 1 -> adidas`).
+
+**Online store (View Online Store) par bhi do dafa check:**
+1. Product banne ke baad — search mein milta hai, us ka page (`<h1>`) wahi naam dikhata hai, aur price sahi hai (variant product mein har variant button daba kar us ki price).
+2. Edit ke baad — naye naam se milta hai, page naya naam aur **naya price** (har variant ka) dikhata hai, aur **purana naam search mein ab nahi aata**.
+
+**Active band / chalu (edit ke baad):** admin mein wahi product list se dobara khol kar **Active band** kiya jata hai (simple: Product Options ka "Active" checkbox untick; variant: har variant ki row ka Active switch off — variant product ka poore product wala Active nahi hota), Save changes, edit form dobara khol kar check. Phir online store ki **search mein product nahi aana chahiye**. Phir **Active dobara chalu** → search mein wapas milna chahiye, naam aur price ke saath. (`ProductFormPage.setActive / setAllVariantsActive`)
+
+Online store naya/edited product thori der se uthata hai, is liye `StorefrontPage.openProduct / waitForPrice / waitForProductGone` kuch minute tak dobara search / reload karte rehte hain. Online store kholna cookies saaf karta hai, is liye wapas admin mein jaane ke liye `cy.enterDataStore()` dobara chalta hai. Cost online store par kabhi nazar nahi aata.
+
+Helpers: `ProductsPage.searchProduct / openRowActions / openEditForm` (search URL mein `?q=` aane ke baad list reload hoti hai aur khuli row band ho jati hai — is liye intezar + chevron dobara), `ProductFormPage.fieldBlock / chipNames / removeChips / simpleField / saveChanges`, aur `selectRandomCategory/Brand/Tag({ exclude })` jo chuna hua naam yield karte hain.
+
 ### `storefront-search.cy.js`
 Pehla end-to-end customer-flow test: ek **already-existing** random product dhoondo (`fetchRandomProductName`), cart mein daalo, customer-login ke saath checkout karo, order place karo, phir admin session restore kar ke order ko Orders module mein dhoondo aur "Picked Up" mark karo.
 
@@ -922,7 +950,7 @@ HTML report: `cypress/reports-output/item-sold-filters-<date>_<time>.html`.
 
 ### `all-tests.cy.js`
 ```js
-require("./data-tests.cy.js");     // login, store-view, add-product, add-category, storefront-search, new-product-order
+require("./data-tests.cy.js");     // login, store-view, add-product, add-category, edit-product, storefront-search, new-product-order
 require("./report-tests.cy.js");   // report, category, order count reconciliation + Item Sold / Category Sold exports + Item Sold filters
 ```
 `data-tests.cy.js` aur `report-tests.cy.js` khud bhi chalaye ja sakte hain (`npm run test:data` / `npm run test:reports`, section 8). Report tests kabhi data nahi banate, is liye `test:reports` kisi bhi report store par mehfooz hai.
@@ -1335,7 +1363,7 @@ Ek dafa mein: Dashboard "Month" / "Locations" button "is being covered by anothe
 | `npm run test:store-view` | Sirf store-view test |
 | `npm run test:add-product` | Sirf add-product test (simple + variant product creation) |
 | `npm run test:add-category` | Sirf add-category test |
-| `npm run test:data` | **Sirf data banane wale tests** (`data-tests.cy.js`: login, store-view, add-product, add-category, storefront-search, new-product-order). Sirf `dataStores` wale store mein chalte hain |
+| `npm run test:data` | **Sirf data banane wale tests** (`data-tests.cy.js`: login, store-view, add-product, add-category, edit-product, storefront-search, new-product-order). Sirf `dataStores` wale store mein chalte hain |
 | `npm run test:reports` | **Sirf report checks** (`report-tests.cy.js`: report, category, order count). Kabhi data nahi banate |
 | `npm run test:all` (ya `npm run cypress:headed`) | **`all-tests.cy.js` (sab specs) ek hi window mein**, aakhir mein khula rehta hai |
 | `npm run cypress:run` | Headless (bina browser dikhaye) — `all-tests.cy.js` |

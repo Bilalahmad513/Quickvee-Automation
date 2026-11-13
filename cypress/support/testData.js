@@ -41,4 +41,11 @@ function randomPricePair({ minCost = 10, maxCost = 50, minMargin = 5, maxMargin 
   return { cost: cost.toFixed(2), price: price.toFixed(2) };
 }
 
-module.exports = { randomProductName, randomPricePair };
+// A 12-digit UPC no earlier run will have used: "8" + the time in ms
+// (last 7 digits) + 4 random digits. UPCs must be unique across the store.
+function randomUpc() {
+  const digits = Date.now().toString().slice(-7) + String(Cypress._.random(0, 9999)).padStart(4, "0");
+  return `8${digits}`;
+}
+
+module.exports = { randomProductName, randomPricePair, randomUpc };

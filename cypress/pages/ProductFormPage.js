@@ -51,7 +51,10 @@ class ProductFormPage {
   // assertChipSelected). Only used for Categories - the one required field,
   // and the one whose chip layout is confirmed; Brand renders its pick
   // differently.
-  selectRandomOption(placeholder, uniqueNamePrefix, { verifySelected = false } = {}) {
+  //
+  // `exclude`: option names not to pick (e.g. the one an edited product
+  // already has, so the edit really changes it).
+  selectRandomOption(placeholder, uniqueNamePrefix, { verifySelected = false, exclude = [] } = {}) {
     const input = () => cy.get(`input[placeholder="${placeholder}"]`);
     // The option panel is the dropdown row's very next sibling - asserting on
     // its visibility gives Cypress's normal retry-ability (not a cy.wait())
@@ -70,7 +73,7 @@ class ProductFormPage {
     // match turns into a `Create "..."` button.
     const isRealOption = (el) => {
       const text = el.textContent.trim();
-      return text !== "" && !/^load more$/i.test(text) && !text.startsWith('Create "');
+      return text !== "" && !/^load more$/i.test(text) && !text.startsWith('Create "') && !exclude.includes(text);
     };
 
     return panel()
@@ -82,26 +85,148 @@ class ProductFormPage {
           const option = Cypress._.sample(options);
           const optionText = option.textContent.trim();
           cy.wrap(option).click();
-          return confirm(optionText);
+          return confirm(optionText).then(() => optionText);
         }
 
         const uniqueName = uniqueNamePrefix + Date.now().toString().slice(-5);
         input().type(uniqueName);
         cy.contains("button", `Create "${uniqueName}"`, { timeout: 8000 }).click();
-        return confirm(uniqueName);
+        return confirm(uniqueName).then(() => uniqueName);
       });
   }
 
-  selectRandomCategory() {
-    return this.selectRandomOption("Add a category", "Auto Category ", { verifySelected: true });
+  // Each yields the name it picked (or created).
+  selectRandomCategory({ exclude = [] } = {}) {
+    return this.selectRandomOption("Add a category", "Auto Category ", { verifySelected: true, exclude });
   }
 
-  selectRandomBrand() {
-    return this.selectRandomOption("Choose a brand", "Auto Brand ");
+  selectRandomBrand({ exclude = [] } = {}) {
+    return this.selectRandomOption("Choose a brand", "Auto Brand ", { exclude });
   }
 
-  selectRandomTag() {
-    return this.selectRandomOption("Add a tag", "Auto Tag ");
+  selectRandomTag({ exclude = [] } = {}) {
+    return this.selectRandomOption("Add a tag", "Auto Tag ", { exclude });
+  }
+
+  // --- Edit form (Products > a product > "Edit product") ---------------
+  // Same form as Add product, with "Save changes" instead of "Save product".
+  // Confirmed live (13 Nov 2026): Cost and "Available to sell" are disabled
+  // there - "Locked - adjust via Stocktake or receiving" - for single and
+  // variant products alike, so neither can be changed by editing.
+
+  // A Product Information field's box (label + chips + input), by its
+  // label: "Brand", "Tags", "Categories" (shown as "Categories*").
+  fieldBlock(label) {
+    return cy.contains("label", new RegExp(`^${label}\\s*\\*?$`), { timeout: 30000 }).parent();
+  }
+
+  // The names on a field's chips (selected options), e.g. ["CAT 07"].
+  chipNames(label) {
+    return this.fieldBlock(label).then(($block) =>
+      $block
+        .find(".qv-inv-chip")
+        .toArray()
+        .map((chip) => chip.querySelector("span").innerText.trim())
+    );
+  }
+
+  // Removes every chip from a field with its "x" - one at a time, as each
+  // removal re-renders the field. A Brand chip has to go before another
+  // brand can be picked (one brand per product: the "Choose a brand" box
+  // only shows while there's none).
+  removeChips(label) {
+    return this.fieldBlock(label).then(($block) => {
+      const $button = $block.find(".qv-inv-chip button").first();
+      if (!$button.length) return;
+      cy.wrap($button).click();
+      return this.removeChips(label);
+    });
+  }
+
+  // The Pricing & Inventory field under `label` ("UPC", "Cost", "Price") on
+  // a single product.
+  simpleField(label) {
+    return cy.contains("label", new RegExp(`^${label}$`), { timeout: 30000 }).parent().find("input").first();
+  }
+
+  // --- Active (shown / sold anywhere) --------------------------------------
+  // Confirmed live (13 Nov 2026):
+  // - Single product: "Active" in Product Options is a <button> acting as a
+  //   checkbox - its first <span> holds a check mark (<svg>) while ticked,
+  //   nothing when not. Each click flips it.
+  // - Product with variants: there's no Active for the whole product; each
+  //   variant's row has its own Active switch ([role="switch"],
+  //   aria-checked "true"/"false"; the row then reads Active / Inactive).
+  //   Turning every variant off is what takes the product off sale.
+
+  activeCheckbox() {
+    return cy.contains("button", "Uncheck to disable this product everywhere", { timeout: 30000 });
+  }
+
+  isActiveTicked($button) {
+    return $button.children("span").first().find("svg").length > 0;
+  }
+
+  setActive(active) {
+    this.activeCheckbox().then(($button) => {
+      if (this.isActiveTicked($button) !== active) cy.wrap($button).click();
+    });
+    return this.assertActive(active);
+  }
+
+  assertActive(active) {
+    return this.activeCheckbox().should(($button) => {
+      expect(this.isActiveTicked($button), "Active ticked").to.equal(active);
+    });
+  }
+
+  variantActiveSwitch(id) {
+    return cy.get(`[data-npf-vcard="${id}"] [role="switch"]`, { timeout: 30000 }).first();
+  }
+
+  setAllVariantsActive(active) {
+    cy.get("[data-npf-vcard]", { timeout: 30000 }).then(($cards) => {
+      $cards
+        .toArray()
+        .map((el) => el.getAttribute("data-npf-vcard"))
+        .forEach((id) => {
+          this.variantActiveSwitch(id).then(($switch) => {
+            if ($switch.attr("aria-checked") !== String(active)) cy.wrap($switch).click();
+          });
+          this.variantActiveSwitch(id).should("have.attr", "aria-checked", String(active));
+        });
+    });
+    return this.assertAllVariantsActive(active);
+  }
+
+  assertAllVariantsActive(active) {
+    return cy.get("[data-npf-vcard]", { timeout: 30000 }).should(($cards) => {
+      $cards.toArray().forEach((card) => {
+        const name = (card.querySelector("[data-npf-vcard-name]") || {}).textContent || card.getAttribute("data-npf-vcard");
+        const state = card.querySelector('[role="switch"]').getAttribute("aria-checked");
+        expect(state, `variant ${name} Active`).to.equal(String(active));
+      });
+    });
+  }
+
+  saveChanges() {
+    cy.contains("button", "Save changes").click();
+    // Whatever comes first: a success message, leaving the edit page, or
+    // one of the messages that mean nothing was saved.
+    return cy
+      .get("body", { timeout: 20000 })
+      .should(($body) => {
+        const text = $body[0].innerText;
+        const left = !$body[0].ownerDocument.location.pathname.includes("/edit/");
+        const done = left || /success/i.test(text) || /You're offline/.test(text) || SAVE_VALIDATION_MESSAGES.some((m) => text.includes(m));
+        expect(done, "a save outcome: success message, left the edit page, validation message or offline toast").to.equal(true);
+      })
+      .then(($body) => {
+        const text = $body[0].innerText;
+        const message = SAVE_VALIDATION_MESSAGES.find((m) => text.includes(m));
+        if (message) throw new Error(`Save was blocked by the form's own validation ("${message}").`);
+        if (/You're offline/.test(text)) throw new Error(`Saving the changes hit the "You're offline" toast.`);
+      });
   }
 
   // Same combobox as selectRandomOption, but deterministic: typing the exact
@@ -158,10 +283,17 @@ class ProductFormPage {
   // field (see fillAllVariantAvailableToSell) - its own input shares a bare
   // "0" placeholder with the neighboring Reorder point/quantity fields, so
   // the lookup is scoped to the label's own container to target the right
-  // one.
-  fillAvailableToSell(min = 10, max = 100) {
+  // one. Every simple product the tests create gets a random 1-100 here
+  // (user, 13 Nov 2026), so none is saved with 0 in stock.
+  fillAvailableToSell(min = 1, max = 100) {
     const quantity = String(Cypress._.random(min, max));
-    return cy.contains("Available to sell").parent().find('input[placeholder="0"]').clear().type(quantity);
+    return cy
+      .contains("Available to sell")
+      .parent()
+      .find('input[placeholder="0"]')
+      .clear()
+      .type(quantity)
+      .should("have.value", quantity);
   }
 
   // The helper text above the field also reads "e.g. Size, Flavor", so a

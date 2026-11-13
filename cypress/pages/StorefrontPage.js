@@ -122,6 +122,81 @@ class StorefrontPage {
   selectSearchResult(productName) {
     return cy.contains(".home-search-items", productName).click();
   }
+
+  // --- A product's own page (/product/<merchant>?...&product=<id>) -------
+  // Confirmed live (13 Nov 2026): the name is the page's <h1>; the price is
+  // the _price_ <p> inside the _priceMeta_ block (the "Highest Selling
+  // Products" cards further down have prices of their own). On a product
+  // with variants each value is a _flavorButton_ ("XSmall", "Medium") and
+  // the price shown is the selected one's.
+
+  productPrice() {
+    return cy.get('[class*="priceMeta"] [class*="_price_"]', { timeout: 20000 }).first();
+  }
+
+  // Searches for the product (waiting for it to become searchable, as a
+  // newly created or renamed product takes a while) and opens its page.
+  openProduct(name, { timeoutMs = 300000 } = {}) {
+    return this.waitForProductSearchable(name, { timeoutMs }).then((found) => {
+      expect(found, `"${name}" to be searchable on the online store`).to.equal(true);
+      this.selectSearchResult(name);
+      return cy.get("h1", { timeout: 20000 }).should("have.text", name);
+    });
+  }
+
+  variantButtonNames() {
+    return cy
+      .get('button[class*="flavorButton"]', { timeout: 20000 })
+      .then(($buttons) => $buttons.toArray().map((b) => b.innerText.trim()));
+  }
+
+  selectVariant(name) {
+    return cy
+      .contains('button[class*="flavorButton"]', new RegExp(`^\\s*${Cypress._.escapeRegExp(name)}\\s*$`), { timeout: 20000 })
+      .click();
+  }
+
+  // The price can lag behind an edit for a little while, so the page is
+  // reloaded until it shows `price` ("30.00") or the time is up.
+  // `beforeCheck` runs before every look (e.g. selecting the variant
+  // again, which a reload undoes).
+  waitForPrice(price, { timeoutMs = 180000, pollIntervalMs = 5000, beforeCheck } = {}, _startedAt) {
+    const startedAt = _startedAt || Date.now();
+    const expected = `$${price}`;
+    if (beforeCheck) beforeCheck();
+    return this.productPrice()
+      .invoke("text")
+      .then((text) => {
+        if (text.trim() === expected) return;
+        if (Date.now() - startedAt >= timeoutMs) {
+          expect(text.trim(), "price on the online store").to.equal(expected);
+          return;
+        }
+        cy.wait(pollIntervalMs);
+        cy.reload();
+        this.dismissAgeVerification();
+        return this.waitForPrice(price, { timeoutMs, pollIntervalMs, beforeCheck }, startedAt);
+      });
+  }
+
+  // The other side of waitForProductSearchable: searches until no result
+  // reads `name` any more (e.g. a product's name from before it was
+  // renamed). Yields whether it's gone.
+  waitForProductGone(name, { timeoutMs = 300000, pollIntervalMs = 5000 } = {}, _startedAt) {
+    const startedAt = _startedAt || Date.now();
+    this.searchProduct(name);
+    return cy.wait(4000).then(() =>
+      cy.get("body").then(($body) => {
+        const shown = $body
+          .find(".home-search-items")
+          .toArray()
+          .some((el) => el.innerText.includes(name));
+        if (!shown) return true;
+        if (Date.now() - startedAt >= timeoutMs) return false;
+        return cy.wait(pollIntervalMs).then(() => this.waitForProductGone(name, { timeoutMs, pollIntervalMs }, startedAt));
+      })
+    );
+  }
 }
 
 module.exports = new StorefrontPage();

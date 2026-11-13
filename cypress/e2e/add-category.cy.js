@@ -26,6 +26,7 @@ describe("Add Category", () => {
     productFormPage.fillName(randomProductName());
     productFormPage.selectCategoryByName(categoryName);
     productFormPage.fillSimplePricing(cost, price);
+    productFormPage.fillAvailableToSell();
     productFormPage.save();
 
     productFormPage.assertAddedSuccessfully();
