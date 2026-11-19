@@ -32,6 +32,7 @@ cypress-automation/
     │   │   ├── item-sold-export.cy.js   → Item Sold Report ki Export CSV file = page ka Total row (download ya email)
     │   │   ├── item-sold-filters.cy.js  → Item Sold Report ka search + Category/Brand/Tag filters, aur All Stores mein UPC grouping
     │   │   └── category-sold-export.cy.js → Category Sold Report ki Export CSV ke columns ka jod = page ka summary (download ya email)
+    │   ├── only-for-rock-n-roll.cy.js → Sirf Rock N Roll: Item Sold = Category Sold = Sales Summary (113 stores). Kisi suite mein shamil nahi
     │   ├── data-tests.cy.js      → Data banane wale tests (+ login/store-view) ek sath
     │   ├── report-tests.cy.js    → Sirf report checks ek sath (data nahi banate)
     │   └── all-tests.cy.js       → Dono
@@ -948,6 +949,38 @@ Agar listing mein chunne ko kuch na ho (jaise kisi store mein brand hi nahi), te
 
 HTML report: `cypress/reports-output/item-sold-filters-<date>_<time>.html`.
 
+### `only-for-rock-n-roll.cy.js` (alag test, kisi suite mein nahi)
+Sirf **Rock N Roll** account (`AZI650741TX`, 113 stores) ke liye. Ye `all-tests` / `report-tests` mein shamil **nahi** hai; alag chalta hai: `npm run test:rock-n-roll` (ya `cypress:open` mein is spec par click). Sirf data padhta hai. Poora run ~35 minute ka hai. Cypress window minimize na karein, warna run ruk jata hai.
+
+**Mapping:**
+
+| Item Sold | Category Sold | Overall Sales Summary |
+|---|---|---|
+| Sold | Sold Qty | — |
+| Subtotal | Subtotal | Gross Sales |
+| Discounts | Discounts | Discounts + Loyalty Points Redeemed |
+| Refunds | Refunds | Refunds + Store Credit Refunds |
+| Subtotal w/ Discounts | Subtotal w/ Discounts | Net Sales |
+| Total | Total | — |
+| Cost / Profit | Cost / Profit | (API ka total_cost / profit) |
+| Margin | Margin | Profit Margin |
+
+Item Sold aur Category Sold ki "Discounts" mein loyalty aur coupon shamil hain; Sales Summary loyalty ("Loyalty Points Redeemed") aur store credit refunds ("Store Credit Refunds") alag cards par dikhati hai, is liye woh jod kar milaye jaate hain.
+
+**3 tests:**
+1. **UI, All Stores** (Today / Yesterday / This month / This year presets): har page wahi dikhata hai jo us ki API ne bheja, aur teeno pages aapas mein. Jis range mein sale na ho, Item Sold "No sale" dikhata hai (design, bug nahi) → woh range Item Sold par skip.
+2. **API, All Stores, 7 ranges:** mapping, har report ka apna hisaab (Subtotal − Discounts − Refunds = Subtotal w/ Discounts, Net − Cost = Profit, Profit / Net = Margin), aur band ranges mein saari rows ka jod = Total row.
+3. **API, har store alag** (`rockNRollStoreRanges`, default yesterday / last month / this year): mapping; `rockNRollCategoryRange` (yesterday) mein category by category (Item Sold rows category ke hisaab se jod = Category Sold row); aur 113 stores ka jod = All Stores.
+
+**Qaide (user, 19 Nov 2026):**
+- Tests 2 aur 3 mein "This month" aur "This year" **kal tak** chalte hain, taake run ke dauran aane wale orders figure na badlein. Test 11 baje (Pakistan time) ke baad chalayein: us se pehle Texas mein "kal" abhi chal raha hota hai.
+- Category by category sirf ek store ke andar: All Stores mein Item Sold ek UPC ko kisi ek store ki category mein dikhata hai, is liye wahan category ka jod by design alag aata hai.
+- Sales Summary ke Refunds / Store Credit Refunds mein stores combine karne par **$0.99** tak farq round-off maana jata hai ("MATCH (within ±$0.99)"); is se zyada = mismatch.
+
+**Jo mila (19 Nov 2026):** sab match, sirf Sales Summary ka refund split: This year (1 Jan – 18 Nov) 113 stores ka jod Refunds $7,446.48 vs All Stores $7,443.52, Store Credit Refunds $2,684.57 vs $2,687.53 ($2.96 > $0.99; kul refund dono mein $10,131.05). Developers ko report karna hai.
+
+Optional env: `rockNRollStore` (default `AZI650741TX`), `rockNRollStoreRanges`, `rockNRollCategoryRange`, `rockNRollStoreLimit` (sirf pehle N stores, jaldi try ke liye). HTML report: `cypress/reports-output/only-for-rock-n-roll-<date>_<time>.html` (+ `-mismatches.txt`).
+
 ### `all-tests.cy.js`
 ```js
 require("./data-tests.cy.js");     // login, store-view, add-product, add-category, edit-product, storefront-search, new-product-order
@@ -1365,6 +1398,7 @@ Ek dafa mein: Dashboard "Month" / "Locations" button "is being covered by anothe
 | `npm run test:add-category` | Sirf add-category test |
 | `npm run test:data` | **Sirf data banane wale tests** (`data-tests.cy.js`: login, store-view, add-product, add-category, edit-product, storefront-search, new-product-order). Sirf `dataStores` wale store mein chalte hain |
 | `npm run test:reports` | **Sirf report checks** (`report-tests.cy.js`: report, category, order count). Kabhi data nahi banate |
+| `npm run test:rock-n-roll` | Sirf Rock N Roll ka Item Sold / Category Sold / Sales Summary mapping (`only-for-rock-n-roll.cy.js`, ~35 min). Kisi suite mein nahi |
 | `npm run test:all` (ya `npm run cypress:headed`) | **`all-tests.cy.js` (sab specs) ek hi window mein**, aakhir mein khula rehta hai |
 | `npm run cypress:run` | Headless (bina browser dikhaye) — `all-tests.cy.js` |
 | `npm run cypress:open` | Interactive mode, Chrome mein. Spec par click karke chalayein; passed test bhi step by step khulta hai |

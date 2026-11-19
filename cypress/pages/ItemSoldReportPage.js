@@ -94,8 +94,10 @@ class ItemSoldReportPage {
   // its nearest ancestor holding a <dl>.
   totalRow() {
     const totals = {};
-    cy.contains(/All \d+ items? matching filters/, { timeout: 15000 }).then(($label) => {
-      totals.items = toNumber($label.text().match(/All (\d+)/)[1]);
+    // The count has thousands separators ("All 12,997 items" - confirmed
+    // live, Rock N Roll all stores this year).
+    cy.contains(/All [\d,]+ items? matching filters/, { timeout: 15000 }).then(($label) => {
+      totals.items = toNumber($label.text().match(/All ([\d,]+)/)[1]);
       cy.wrap($label)
         .parents()
         .filter((i, el) => el.querySelector("dl") !== null)
