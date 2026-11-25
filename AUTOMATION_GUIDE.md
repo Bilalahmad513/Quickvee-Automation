@@ -33,6 +33,7 @@ cypress-automation/
     │   │   ├── item-sold-filters.cy.js  → Item Sold Report ka search + Category/Brand/Tag filters, aur All Stores mein UPC grouping
     │   │   └── category-sold-export.cy.js → Category Sold Report ki Export CSV ke columns ka jod = page ka summary (download ya email)
     │   ├── only-for-rock-n-roll.cy.js → Sirf Rock N Roll: Item Sold = Category Sold = Sales Summary (113 stores). Kisi suite mein shamil nahi
+    │   ├── tender-wise-payments.cy.js → Tender Wise Payments = Overall Sales Summary ka Payment Method Breakdown (live, Alcosta). Kisi suite mein shamil nahi
     │   ├── data-tests.cy.js      → Data banane wale tests (+ login/store-view) ek sath
     │   ├── report-tests.cy.js    → Sirf report checks ek sath (data nahi banate)
     │   └── all-tests.cy.js       → Dono
@@ -65,6 +66,7 @@ cypress-automation/
     │   ├── CategorySoldReportPage.js   │ (+ dates, Export CSV, summary)
     │   ├── SalesByOrderTypePage.js     │ (+ dates chunna)
     │   ├── ItemSoldReportPage.js       ┘ (+ dates, Export CSV, Total row, search, Category/Brand/Tag)
+    │   ├── TenderWisePaymentsPage.js   → Tender Wise Payments: presets, Summary cards, table + GRAND TOTAL
     │   ├── reportStorePickers.js       → Store pickers jo kai report pages par same hain
     │   ├── reportDateRangeButton.js    → Item Sold + Category Sold ka date range calendar (presets / start-end + Retrieve)
     │   └── datePicker.js               → Start/End Date calendars (report pages + Orders page)
@@ -981,6 +983,37 @@ Item Sold aur Category Sold ki "Discounts" mein loyalty aur coupon shamil hain; 
 
 Optional env: `rockNRollStore` (default `AZI650741TX`), `rockNRollStoreRanges`, `rockNRollCategoryRange`, `rockNRollStoreLimit` (sirf pehle N stores, jaldi try ke liye). HTML report: `cypress/reports-output/only-for-rock-n-roll-<date>_<time>.html` (+ `-mismatches.txt`).
 
+### `tender-wise-payments.cy.js` (alag test, kisi suite mein nahi)
+**Tender Wise Payments** report ko **Overall Sales Summary** ke "Payment Method Breakdown" se milata hai. Alag chalta hai: `npm run test:tender-wise-payments` (ya `cypress:open` mein is spec par click). Sirf data padhta hai, kuch create nahi karta. Poora run ~11 minute ka hai.
+
+**Mapping:**
+
+| Tender Wise Payments | Overall Sales Summary |
+|---|---|
+| Summary card Cash / Credit Card / Debit Card · Gross | Cash / Credit Card / Debit Card · Amount |
+| Summary card · Net | Net |
+| Table Gross ($) GRAND TOTAL (har tender) | Amount |
+| Table Net ($) GRAND TOTAL (har tender) | Net |
+| Returns (API) | Refunded |
+
+Saath mein: har report ka apna hisaab (Summary card = GRAND TOTAL = rows ka jod; Net = Gross − returns; Sales Summary Net = Amount − Refunded), har page = us ki API, aur dono pages ne same dates aur stores maange.
+
+**7 date filters** (Today, Yesterday, Last 7 Days, Last 14 Days, Last 30 Days, Month to Date, Year to Date), har ek par 2 tests:
+1. **Ek store** (`tenderStore`): dono pages par sirf woh store. Store naam se khulta hai, phir test pakka karta hai ke us ka merchant id `tenderMerchantId` hai, aur har API call isi store ke liye gayi.
+2. **All Stores:** dono pages par All Stores (account ke saare stores), phir Tender table ki har store row = Sales Summary jis mein sirf woh store chuna ho.
+
+Sales Summary par "Last 30 Days" ka preset nahi, is liye wahan woh dates calendar se chuni jaati hain. Jis range mein sale na ho, Sales Summary "No Data Found." dikhati hai; tab woh $0.00 maani jaati hai (sirf jab API bhi khaali ho).
+
+**Qaide:**
+- Default **live** (`https://quickvee.com`, 25 Nov 2026 se; pehle test server). Doosre server ke liye `tenderSiteUrl` (masalan `https://admin-panel-test.quickvee.us`).
+- Default store **Alcosta smoke shop** (`PRA0351CA`). Badalna ho to `tenderStore` + `tenderMerchantId`.
+- Store ke din band hone ke baad chalayein (Texas: 11 baje Pakistan time ke baad; Oregon / Pacific: 1 baje ke baad). Warna run ke dauran aane wali sales se aaj wali ranges mein farq aata hai.
+- Bahut stores wale account (masalan 30) par All Stores har store ki Sales Summary alag kholta hai; interactive mode mein Chrome ki memory bhar sakti hai, is liye `npm run test:tender-wise-payments` se chalayein.
+
+**Jo mila (25 Nov 2026, live, Alcosta, 4 stores):** 14/14 pass, 868 checks, koi mismatch nahi.
+
+HTML report: `cypress/reports-output/tender-wise-payments-<date>_<time>.html` (+ `-mismatches.txt`).
+
 ### `all-tests.cy.js`
 ```js
 require("./data-tests.cy.js");     // login, store-view, add-product, add-category, edit-product, storefront-search, new-product-order
@@ -1399,6 +1432,7 @@ Ek dafa mein: Dashboard "Month" / "Locations" button "is being covered by anothe
 | `npm run test:data` | **Sirf data banane wale tests** (`data-tests.cy.js`: login, store-view, add-product, add-category, edit-product, storefront-search, new-product-order). Sirf `dataStores` wale store mein chalte hain |
 | `npm run test:reports` | **Sirf report checks** (`report-tests.cy.js`: report, category, order count). Kabhi data nahi banate |
 | `npm run test:rock-n-roll` | Sirf Rock N Roll ka Item Sold / Category Sold / Sales Summary mapping (`only-for-rock-n-roll.cy.js`, ~35 min). Kisi suite mein nahi |
+| `npm run test:tender-wise-payments` | Tender Wise Payments = Overall Sales Summary (`tender-wise-payments.cy.js`, live, Alcosta, ~11 min). Kisi suite mein nahi |
 | `npm run test:all` (ya `npm run cypress:headed`) | **`all-tests.cy.js` (sab specs) ek hi window mein**, aakhir mein khula rehta hai |
 | `npm run cypress:run` | Headless (bina browser dikhaye) — `all-tests.cy.js` |
 | `npm run cypress:open` | Interactive mode, Chrome mein. Spec par click karke chalayein; passed test bhi step by step khulta hai |

@@ -17,8 +17,24 @@ function storesFilterTrigger() {
 // confirmed live (one attempt per test): the Stores menu was there but its
 // "All Stores" item took longer than the default 4s. So the item lookup
 // gets the same 15s as the menu.
+// Opens the Stores menu. A click can be lost while the picker re-renders
+// (confirmed live on the test server, 20 Nov 2026: right after the page
+// loaded or a date preset was clicked, the click focused the trigger but no
+// menu opened) - so the click is tried again, a few times, until the menu
+// is there.
+function openStoresFilterMenu(attemptsLeft = 5) {
+  storesFilterTrigger().should("be.visible").click();
+  return cy.wait(1000, { log: false }).then(() =>
+    cy.get("body").then(($body) => {
+      if ($body.find('[data-testid="multi-location-menu"]:visible').length) return;
+      if (attemptsLeft <= 1) throw new Error("The Stores menu never opened.");
+      return openStoresFilterMenu(attemptsLeft - 1);
+    })
+  );
+}
+
 function selectAllInStoresFilter() {
-  storesFilterTrigger().click();
+  openStoresFilterMenu();
   cy.get('[data-testid="multi-location-menu"]', { timeout: 15000 })
     .contains('li[role="menuitem"]', /^All Stores$/, { timeout: 15000 })
     .then(($item) => {
@@ -26,6 +42,55 @@ function selectAllInStoresFilter() {
     });
   cy.get("body").click(0, 0);
   storesFilterTrigger().should("have.text", "All Stores");
+  return cy.contains("button", /^Search$/).click();
+}
+
+// Leaves only the store named `name` ticked in the "Stores" menu (any case),
+// closes it and runs the report with "Search". Each store is an
+// li[role="menuitem"] with a checkbox and its name (confirmed live, test
+// server). The picker won't untick its last ticked store (confirmed live:
+// unticking the only store, then ticking another, left "2 stores
+// selected"), so `name` is ticked first, then "All Stores" and every other
+// store unticked.
+function selectOnlyStoreInStoresFilter(name) {
+  const wanted = name.trim().toLowerCase();
+  const menu = () => cy.get('[data-testid="multi-location-menu"]', { timeout: 15000 });
+  const isTicked = (li) => Boolean(li.querySelector(".Mui-checked, input[type=checkbox]:checked"));
+  const label = (li) => li.textContent.trim();
+  const storeItems = ($menu) =>
+    $menu
+      .find('li[role="menuitem"]')
+      .toArray()
+      .filter((li) => li.querySelector("input[type=checkbox]"));
+  const clickItem = (text) => menu().contains('li[role="menuitem"]', new RegExp(`^${Cypress._.escapeRegExp(text)}$`, "i")).click();
+
+  openStoresFilterMenu();
+  menu().then(($menu) => {
+    const target = storeItems($menu).find((li) => label(li).toLowerCase() === wanted);
+    expect(target, `"${name}" in the Stores menu`).to.exist;
+    if (!isTicked(target)) clickItem(label(target));
+  });
+  // "All Stores" first (it ticks/unticks the rest), then each other store -
+  // looked up afresh each time, as every click redraws the menu.
+  ["All Stores", null].forEach((only) => {
+    menu().then(($menu) => {
+      storeItems($menu)
+        .filter((li) => (only ? label(li) === only : label(li) !== "All Stores" && label(li).toLowerCase() !== wanted))
+        .map(label)
+        .forEach((text) =>
+          menu().then(($now) => {
+            const li = storeItems($now).find((el) => label(el) === text);
+            if (li && isTicked(li)) clickItem(text);
+          })
+        );
+    });
+  });
+  menu().then(($menu) => {
+    const target = storeItems($menu).find((li) => label(li).toLowerCase() === wanted);
+    if (target && !isTicked(target)) clickItem(label(target));
+  });
+  cy.get("body").click(0, 0);
+  storesFilterTrigger().invoke("text").should((text) => expect(text.trim().toLowerCase()).to.equal(wanted));
   return cy.contains("button", /^Search$/).click();
 }
 
@@ -83,7 +148,9 @@ function selectCurrentStoreInSelectAllPopover(trigger) {
 
 module.exports = {
   storesFilterTrigger,
+  openStoresFilterMenu,
   selectAllInStoresFilter,
+  selectOnlyStoreInStoresFilter,
   outletDropDownTrigger,
   selectAllInOutletDropDown,
   selectAllInSelectAllPopover,

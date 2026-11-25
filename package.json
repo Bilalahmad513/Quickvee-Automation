@@ -14,6 +14,7 @@
     "test:data": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/data-tests.cy.js\" --no-exit",
     "test:reports": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/report-tests.cy.js\" --no-exit",
     "test:rock-n-roll": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/only-for-rock-n-roll.cy.js\" --no-exit",
+    "test:tender-wise-payments": "node scripts/run-cypress.js run --headed --browser chrome --spec \"cypress/e2e/tender-wise-payments.cy.js\" --no-exit",
     "test:all": "npm run cypress:headed",
     "watch": "nodemon --watch cypress --watch cypress.config.js --ext js -x \"node scripts/run-cypress.js run --headed --browser chrome --spec \\\"cypress/e2e/all-tests.cy.js\\\"\"",
     "test": "npm run cypress:run"
